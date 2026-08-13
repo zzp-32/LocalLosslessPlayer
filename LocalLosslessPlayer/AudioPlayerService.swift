@@ -7,7 +7,7 @@ enum AudioPlayerError: Error {
 }
 
 @MainActor
-final class AudioPlayerService: ObservableObject {
+final class AudioPlayerService: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
@@ -23,7 +23,8 @@ final class AudioPlayerService: ObservableObject {
     private var scheduleGeneration = 0
     private var progressTimer: Timer?
 
-    init() {
+    override init() {
+        super.init()
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
         configureAudioSession()
@@ -154,14 +155,22 @@ final class AudioPlayerService: ObservableObject {
 
     private func startProgressUpdates() {
         guard progressTimer == nil else { return }
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.updateProgress() }
-        }
+        progressTimer = Timer.scheduledTimer(
+            timeInterval: 0.25,
+            target: self,
+            selector: #selector(progressTimerFired),
+            userInfo: nil,
+            repeats: true
+        )
     }
 
     private func stopProgressUpdates() {
         progressTimer?.invalidate()
         progressTimer = nil
+    }
+
+    @objc private func progressTimerFired() {
+        updateProgress()
     }
 
     private func updateProgress() {
