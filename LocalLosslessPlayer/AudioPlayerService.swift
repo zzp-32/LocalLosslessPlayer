@@ -18,6 +18,9 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    private let equalizer = AVAudioUnitEQ(numberOfBands: 10)
+    private let timePitch = AVAudioUnitTimePitch()
+    private let balanceMixer = AVAudioMixerNode()
     private var audioFile: AVAudioFile?
     private var startFrame: AVAudioFramePosition = 0
     private var scheduleGeneration = 0
@@ -26,9 +29,32 @@ final class AudioPlayerService: NSObject, ObservableObject {
     override init() {
         super.init()
         engine.attach(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
+        engine.attach(equalizer)
+        engine.attach(timePitch)
+        engine.attach(balanceMixer)
+        let frequencies: [Float] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        for (index, frequency) in frequencies.enumerated() {
+            equalizer.bands[index].filterType = .parametric
+            equalizer.bands[index].frequency = frequency
+            equalizer.bands[index].bandwidth = 1
+            equalizer.bands[index].bypass = false
+        }
+        engine.connect(playerNode, to: equalizer, format: nil)
+        engine.connect(equalizer, to: timePitch, format: nil)
+        engine.connect(timePitch, to: balanceMixer, format: nil)
+        engine.connect(balanceMixer, to: engine.mainMixerNode, format: nil)
         configureAudioSession()
         configureRemoteCommands()
+    }
+
+    func applySettings(gains: [Double], preamp: Double, balance: Double, rate: Double, loudness: Bool) {
+        for index in 0..<min(gains.count, equalizer.bands.count) {
+            equalizer.bands[index].gain = Float(max(-12, min(12, gains[index])))
+        }
+        balanceMixer.pan = Float(max(-1, min(1, balance / 100)))
+        balanceMixer.outputVolume = Float(max(0.05, min(2, pow(10, preamp / 20))))
+        timePitch.rate = Float(max(0.5, min(2, rate)))
+        equalizer.globalGain = loudness ? 2 : 0
     }
 
     func load(url: URL, title: String, artist: String?) throws {

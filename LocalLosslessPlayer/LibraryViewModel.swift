@@ -32,4 +32,11 @@ final class LibraryViewModel: ObservableObject {
             statusMessage = result.message
         }
     }
+
+    func delete(_ song: Song) {
+        try? FileManager.default.removeItem(atPath: song.filePath)
+        context.delete(song)
+        do { try context.save(); refresh() }
+        catch { errorMessage = "删除失败：\(error.localizedDescription)" }
+    }
 }

@@ -22,12 +22,14 @@ final class PlayerViewModel: ObservableObject {
     @Published private(set) var duration = 0.0
     @Published private(set) var isShuffled = false
     @Published private(set) var repeatMode: RepeatMode = .off
+    @Published private(set) var sleepTimerEnd: Date?
     @Published var errorMessage: String?
 
     private var sourceQueue: [Song] = []
     private var queue: [Song] = []
     private var queueIndex = 0
     private let service = AudioPlayerService()
+    private var sleepTimer: Timer?
 
     init() {
         service.$isPlaying.assign(to: &$isPlaying)
@@ -82,6 +84,30 @@ final class PlayerViewModel: ObservableObject {
         case .off: repeatMode = .all
         case .all: repeatMode = .one
         case .one: repeatMode = .off
+        }
+    }
+
+    func apply(settings: AppSettings) {
+        service.applySettings(
+            gains: settings.equalizerGains,
+            preamp: settings.preamp,
+            balance: settings.balance,
+            rate: settings.playbackRate,
+            loudness: settings.loudness
+        )
+    }
+
+    func setSleepTimer(minutes: Int?) {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        guard let minutes else { sleepTimerEnd = nil; return }
+        sleepTimerEnd = Date().addingTimeInterval(Double(minutes * 60))
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: Double(minutes * 60), repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.service.pause()
+                self?.sleepTimerEnd = nil
+                self?.sleepTimer = nil
+            }
         }
     }
 
