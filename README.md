@@ -47,3 +47,12 @@ Windows 上无法运行 Xcode/iOS 模拟器，因此本环境只做源码结构�
 2. Mac：在项目根目录运行 `bash scripts/build-trollstore-ipa.sh`。
 
 得到 `LocalLosslessPlayer-TrollStore.ipa` 后传到 iPhone X，在 TrollStore 中点加号并选择该文件安装。该 IPA 是为 TrollStore 准备的无签名 arm64 包，最低系统版本为 iOS 16.0。
+
+## build 7 界面功能
+
+- 底部三栏：音乐库、播放列表、搜索
+- 左上角功能菜单：EQ、定时关闭、播放速度、歌曲信息、主题切换
+- 播放页：封面、收藏、进度、随机、循环、上一首、下一首
+- 全屏歌词页：支持后续接入内嵌歌词或同名 `.lrc` 文件
+- 10 段参数 EQ、Preamp、Balance、Loudness 与播放速度会保存到本地
+- 收藏歌曲会保存到本地，覆盖安装新版不会丢失已导入歌曲
