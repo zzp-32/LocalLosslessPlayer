@@ -46,14 +46,15 @@ final class LibraryViewModel: ObservableObject {
         isImporting = true
         importProgress = "Scanning folder..."
         let files = await FileImporterService.audioFiles(in: folder)
-        if hasAccess { folder.stopAccessingSecurityScopedResource() }
         isImporting = false
         guard !files.isEmpty else {
+            if hasAccess { folder.stopAccessingSecurityScopedResource() }
             errorMessage = "No supported audio files found in this folder."
             importProgress = ""
             return
         }
         await importFiles(files)
+        if hasAccess { folder.stopAccessingSecurityScopedResource() }
     }
 
     func rescanSavedFolder() async {
@@ -65,9 +66,12 @@ final class LibraryViewModel: ObservableObject {
         }
         let hasAccess = folder.startAccessingSecurityScopedResource()
         let files = await FileImporterService.audioFiles(in: folder)
-        if hasAccess { folder.stopAccessingSecurityScopedResource() }
-        guard !files.isEmpty else { return }
+        guard !files.isEmpty else {
+            if hasAccess { folder.stopAccessingSecurityScopedResource() }
+            return
+        }
         await importFiles(files, reportStatus: false)
+        if hasAccess { folder.stopAccessingSecurityScopedResource() }
     }
 
     private func saveFolderBookmark(_ folder: URL) {
