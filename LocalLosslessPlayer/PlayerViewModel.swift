@@ -102,13 +102,19 @@ final class PlayerViewModel: ObservableObject {
         sleepTimer = nil
         guard let minutes else { sleepTimerEnd = nil; return }
         sleepTimerEnd = Date().addingTimeInterval(Double(minutes * 60))
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: Double(minutes * 60), repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.service.pause()
-                self?.sleepTimerEnd = nil
-                self?.sleepTimer = nil
-            }
-        }
+        sleepTimer = Timer.scheduledTimer(
+            timeInterval: Double(minutes * 60),
+            target: self,
+            selector: #selector(sleepTimerFired),
+            userInfo: nil,
+            repeats: false
+        )
+    }
+
+    @objc private func sleepTimerFired() {
+        service.pause()
+        sleepTimerEnd = nil
+        sleepTimer = nil
     }
 
     private func advanceAfterFinish() {
