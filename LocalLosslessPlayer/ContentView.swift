@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var context
@@ -39,11 +38,12 @@ struct ContentView: View {
                     .cornerRadius(8)
                 }
             }
-            .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): Task { await library.importFiles(urls) }
-                case .failure(let error): library.errorMessage = error.localizedDescription
+            .sheet(isPresented: $showingImporter) {
+                DocumentPicker { urls in
+                    showingImporter = false
+                    Task { await library.importFiles(urls) }
                 }
+                .ignoresSafeArea()
             }
             .alert("导入失败", isPresented: Binding(
                 get: { library.errorMessage != nil },
