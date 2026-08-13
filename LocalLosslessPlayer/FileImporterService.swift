@@ -23,12 +23,16 @@ final class FileImporterService {
 
     init(context: NSManagedObjectContext) { self.context = context }
 
-    func importFiles(_ urls: [URL]) async -> ImportResult {
+    func importFiles(
+        _ urls: [URL],
+        progress: (String, Int, Int) -> Void
+    ) async -> ImportResult {
         var importedCount = 0
         var duplicateCount = 0
         var failures: [String] = []
 
-        for source in urls {
+        for (index, source) in urls.enumerated() {
+            progress(source.lastPathComponent, index + 1, urls.count)
             do {
                 let outcome = try await importFile(source)
                 switch outcome {
@@ -58,13 +62,15 @@ final class FileImporterService {
         let hasSecurityScope = source.startAccessingSecurityScopedResource()
         defer { if hasSecurityScope { source.stopAccessingSecurityScopedResource() } }
 
-        let checksum = try sha256(of: source)
-        if try existingSong(with: checksum) != nil { return .duplicate }
-
         let destination = uniqueDestination(for: source, in: StorageConfiguration.mediaRootURL)
+        let checksum = try await copyAndHash(from: source, to: destination)
+        if try existingSong(with: checksum) != nil {
+            try? fileManager.removeItem(at: destination)
+            return .duplicate
+        }
+
         do {
-            try fileManager.copyItem(at: source, to: destination)
-            let duration = try await duration(of: destination)
+            let duration = (try? await duration(of: destination)) ?? 0
 
             let song = Song(context: context)
             song.id = UUID()
@@ -103,15 +109,25 @@ final class FileImporterService {
         return try context.fetch(request).first
     }
 
-    private func sha256(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
-            hasher.update(data: data)
-            awaitTaskYield()
+    private func copyAndHash(from source: URL, to destination: URL) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try FileManager.default.copyItem(at: source, to: destination)
+                    let handle = try FileHandle(forReadingFrom: destination)
+                    defer { try? handle.close() }
+                    var hasher = SHA256()
+                    while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+                        hasher.update(data: data)
+                    }
+                    let checksum = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                    continuation.resume(returning: checksum)
+                } catch {
+                    try? FileManager.default.removeItem(at: destination)
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func duration(of url: URL) async throws -> Double {
@@ -119,9 +135,5 @@ final class FileImporterService {
         let time = try await asset.load(.duration)
         let seconds = CMTimeGetSeconds(time)
         return seconds.isFinite ? max(0, seconds) : 0
-    }
-
-    private func awaitTaskYield() {
-        RunLoop.current.run(mode: .default, before: Date())
     }
 }

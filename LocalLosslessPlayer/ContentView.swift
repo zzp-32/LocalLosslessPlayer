@@ -28,6 +28,11 @@ struct ContentView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                         Text("正在导入音乐…").font(.subheadline)
+                        Text(library.importProgress)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
                     }
                     .padding(20)
                     .background(.regularMaterial)
