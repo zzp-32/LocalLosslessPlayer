@@ -60,8 +60,8 @@ final class LibraryViewModel: ObservableObject {
     func rescanSavedFolder() async {
         guard let data = UserDefaults.standard.data(forKey: "library.folder.bookmark") else { return }
         var stale = false
-        guard let folder = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale) else { return }
-        if stale, let renewed = try? folder.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil) {
+        guard let folder = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { return }
+        if stale, let renewed = try? folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
             UserDefaults.standard.set(renewed, forKey: "library.folder.bookmark")
         }
         let hasAccess = folder.startAccessingSecurityScopedResource()
@@ -75,7 +75,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func saveFolderBookmark(_ folder: URL) {
-        guard let data = try? folder.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil) else {
+        guard let data = try? folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else {
             errorMessage = "Unable to save folder permission. Please select it again."
             return
         }
