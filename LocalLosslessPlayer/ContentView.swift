@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showingImporter = false
     @State private var showingFolderPicker = false
-    
+
     @State private var showingMenu = false
 
     init() {
