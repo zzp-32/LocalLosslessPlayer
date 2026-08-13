@@ -41,10 +41,10 @@ final class LibraryViewModel: ObservableObject {
 
     func importFolder(_ folder: URL) async {
         guard !isImporting else { return }
+        let hasAccess = folder.startAccessingSecurityScopedResource()
         saveFolderBookmark(folder)
         isImporting = true
         importProgress = "Scanning folder..."
-        let hasAccess = folder.startAccessingSecurityScopedResource()
         let files = await FileImporterService.audioFiles(in: folder)
         if hasAccess { folder.stopAccessingSecurityScopedResource() }
         isImporting = false
