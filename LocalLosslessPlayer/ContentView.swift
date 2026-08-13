@@ -9,7 +9,6 @@ struct ContentView: View {
     @State private var showingImporter = false
     @State private var showingFolderPicker = false
     @State private var showingImportOptions = false
-    @State private var showingPlayer = false
     @State private var showingMenu = false
 
     init() {
@@ -42,11 +41,6 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         }
-        .fullScreenCover(isPresented: $showingPlayer) {
-            NowPlayingView()
-                .environmentObject(player)
-                .environmentObject(settings)
-        }
         .sheet(isPresented: $showingMenu) {
             FunctionMenuView()
                 .environmentObject(player)
@@ -68,7 +62,7 @@ struct ContentView: View {
         NavigationStack {
             ZStack {
                 PlayerPalette.background.ignoresSafeArea()
-                LibraryHome(library: library, showImporter: { showingImportOptions = true }, showPlayer: { showingPlayer = true })
+                LibraryHome(library: library, showImporter: { showingImportOptions = true })
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -76,11 +70,14 @@ struct ContentView: View {
                         .accessibilityLabel("更多功能")
                 }
             }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { Task { await library.rescanSavedFolder() } } label: { Image(systemName: "arrow.clockwise") }
+                        .accessibilityLabel("刷新歌库")
+                }
+            }
             .toolbarBackground(PlayerPalette.background, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if player.currentSong != nil { MiniPlayer(showPlayer: { showingPlayer = true }) }
-            }
             .navigationTitle("音乐库")
             .navigationBarTitleDisplayMode(.large)
             .confirmationDialog("导入音乐", isPresented: $showingImportOptions, titleVisibility: .visible) {
@@ -97,18 +94,14 @@ struct ContentView: View {
     private var livePlayerTab: some View {
         NavigationStack {
             LivePlaybackView().environmentObject(player).environmentObject(settings)
-                .navigationTitle("正在播放")
         }
         .tabItem { Label("正在播放", systemImage: "play.circle.fill") }
     }
 
     private var searchTab: some View {
         NavigationStack {
-            SearchView(library: library, showPlayer: { showingPlayer = true })
+            SearchView(library: library)
                 .navigationTitle("搜索")
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if player.currentSong != nil { MiniPlayer(showPlayer: { showingPlayer = true }) }
-                }
         }
         .tabItem { Label("搜索", systemImage: "magnifyingglass") }
     }
@@ -124,7 +117,6 @@ private struct LibraryHome: View {
     @State private var searchText = ""
     @State private var sortByTitle = false
     let showImporter: () -> Void
-    let showPlayer: () -> Void
 
     private var songs: [Song] {
         let source = searchText.isEmpty ? library.songs : library.songs.filter {
@@ -178,7 +170,7 @@ private struct LibraryHome: View {
                     LazyVStack(spacing: 0) {
                         ForEach(songs, id: \.objectID) { song in
                             SongRow(song: song, current: player.currentSong == song) {
-                                player.play(song, queue: songs); showPlayer()
+                                player.play(song, queue: songs)
                             }
                             Divider().overlay(PlayerPalette.line).padding(.leading, 82)
                         }
@@ -197,7 +189,7 @@ private struct SongRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: action) { ArtworkTile(title: song.title, size: 48) }.buttonStyle(.plain)
+            Button(action: action) { ArtworkTile(title: song.title, size: 48, artworkPath: song.artworkPath) }.buttonStyle(.plain)
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(song.title).font(.system(size: 16, weight: current ? .semibold : .regular)).foregroundStyle(current ? PlayerPalette.green : PlayerPalette.primary).lineLimit(1)
@@ -215,7 +207,6 @@ private struct SearchView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @ObservedObject var library: LibraryViewModel
     @State private var query = ""
-    let showPlayer: () -> Void
 
     private var songs: [Song] { library.songs.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.artist?.localizedCaseInsensitiveContains(query) ?? false) } }
 
@@ -226,25 +217,8 @@ private struct SearchView: View {
                 HStack { Image(systemName: "magnifyingglass").foregroundStyle(PlayerPalette.secondary); TextField("搜索本地音乐", text: $query).foregroundStyle(PlayerPalette.primary) }
                     .padding(.horizontal, 14).frame(height: 44).background(PlayerPalette.surface).cornerRadius(7).padding()
                 if query.isEmpty { VStack(spacing: 12) { Image(systemName: "waveform").font(.system(size: 34)).foregroundStyle(PlayerPalette.green); Text("输入歌名或艺术家开始搜索").foregroundStyle(PlayerPalette.secondary) }.padding(.top, 90) }
-                else { List(songs, id: \.objectID) { song in Button { player.play(song, queue: songs); showPlayer() } label: { HStack { ArtworkTile(title: song.title, size: 44); VStack(alignment: .leading) { Text(song.title).foregroundStyle(PlayerPalette.primary); Text(song.artist.nilIfEmpty ?? "未知艺术家").font(.caption).foregroundStyle(PlayerPalette.secondary) } } }.listRowBackground(PlayerPalette.background) } .scrollContentBackground(.hidden) }
+                else { List(songs, id: \.objectID) { song in Button { player.play(song, queue: songs) } label: { HStack { ArtworkTile(title: song.title, size: 44); VStack(alignment: .leading) { Text(song.title).foregroundStyle(PlayerPalette.primary); Text(song.artist.nilIfEmpty ?? "未知艺术家").font(.caption).foregroundStyle(PlayerPalette.secondary) } } }.listRowBackground(PlayerPalette.background) } .scrollContentBackground(.hidden) }
             }
         }
-    }
-}
-
-private struct MiniPlayer: View {
-    @EnvironmentObject private var player: PlayerViewModel
-    let showPlayer: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ProgressView(value: player.currentTime, total: max(player.duration, 1)).progressViewStyle(.linear).tint(PlayerPalette.green).scaleEffect(x: 1, y: 0.55)
-            HStack(spacing: 12) {
-                Button(action: showPlayer) { HStack(spacing: 10) { ArtworkTile(title: player.currentSong?.title ?? "", size: 42); VStack(alignment: .leading, spacing: 2) { Text(player.currentSong?.title ?? "").font(.subheadline.weight(.semibold)).foregroundStyle(PlayerPalette.primary).lineLimit(1); Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家").font(.caption).foregroundStyle(PlayerPalette.secondary).lineLimit(1) } } }.buttonStyle(.plain)
-                Spacer()
-                Button { player.toggle() } label: { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").foregroundStyle(PlayerPalette.primary).frame(width: 38, height: 38) }
-                Button { player.next() } label: { Image(systemName: "forward.fill").foregroundStyle(PlayerPalette.primary).frame(width: 38, height: 38) }
-            }.padding(.horizontal, 14).frame(height: 62).background(.ultraThinMaterial)
-        }.background(PlayerPalette.surface)
     }
 }

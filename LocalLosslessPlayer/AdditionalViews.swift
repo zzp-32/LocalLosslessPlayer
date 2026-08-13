@@ -238,7 +238,7 @@ struct LyricsView: View {
 
     private func loadLyrics() {
         guard let song = player.currentSong else { lines = []; return }
-        let url = URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        let url = song.lyricsPath.map(URL.init(fileURLWithPath:)) ?? URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
         lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
         currentIndex = 0
     }
@@ -314,7 +314,7 @@ struct RealLyricsView: View {
 
     private func reload() {
         guard let song = player.currentSong else { lines = []; return }
-        let url = URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        let url = song.lyricsPath.map(URL.init(fileURLWithPath:)) ?? URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
         lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
         currentIndex = 0
     }
@@ -328,7 +328,6 @@ struct RealLyricsView: View {
 struct LivePlaybackView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
-    @State private var showingLyrics = false
 
     var body: some View {
         ZStack {
@@ -344,7 +343,6 @@ struct LivePlaybackView: View {
                     .environmentObject(settings)
             }
         }
-        .sheet(isPresented: $showingLyrics) { RealLyricsView().environmentObject(player) }
         .preferredColorScheme(.dark)
     }
 }
@@ -362,15 +360,13 @@ struct NowPlayingView: View {
                 HStack {
                     Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 40, height: 40) }
                     Spacer()
-                    Text("正在播放").font(.caption.weight(.semibold)).foregroundStyle(PlayerPalette.secondary)
-                    Spacer()
                     Button { showingLyrics = true } label: { Image(systemName: "text.quote").frame(width: 40, height: 40) }.accessibilityLabel("打开歌词")
                 }
                 .foregroundStyle(PlayerPalette.primary)
                 .padding(.top, 4)
 
                 Spacer(minLength: 16)
-                ArtworkTile(title: player.currentSong?.title ?? "", size: min(UIScreen.main.bounds.width - 48, 340), large: true)
+                ArtworkTile(title: player.currentSong?.title ?? "", size: min(UIScreen.main.bounds.width - 48, 340), large: true, artworkPath: player.currentSong?.artworkPath)
                 Spacer(minLength: 22)
 
                 HStack(alignment: .center) {

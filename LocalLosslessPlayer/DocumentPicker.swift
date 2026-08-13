@@ -42,7 +42,8 @@ struct FolderPicker: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: true)
+        // Keep the security-scoped URL so the folder can be rescanned later.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
         picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator
         return picker

@@ -109,6 +109,7 @@ final class FileImporterService {
             song.checksum = checksum
             song.duration = duration
             song.createdAt = Date()
+            Task { await MetadataMatcher.shared.match(song: song) }
             return .imported
         } catch {
             try? fileManager.removeItem(at: destination)

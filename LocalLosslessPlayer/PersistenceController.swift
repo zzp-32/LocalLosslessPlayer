@@ -49,7 +49,9 @@ final class PersistenceController {
             attribute("checksum", .stringAttributeType, optional: false),
             attribute("duration", .doubleAttributeType, optional: false),
             attribute("createdAt", .dateAttributeType, optional: false),
-            attribute("lastPlayedAt", .dateAttributeType)
+            attribute("lastPlayedAt", .dateAttributeType),
+            attribute("artworkPath", .stringAttributeType),
+            attribute("lyricsPath", .stringAttributeType)
         ]
         model.entities = [entity]
         return model
@@ -68,6 +70,8 @@ final class Song: NSManagedObject {
     @NSManaged var duration: Double
     @NSManaged var createdAt: Date
     @NSManaged var lastPlayedAt: Date?
+    @NSManaged var artworkPath: String?
+    @NSManaged var lyricsPath: String?
 }
 
 extension Song {

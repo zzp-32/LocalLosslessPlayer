@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum PlayerPalette {
     static let background = Color(red: 0.025, green: 0.031, blue: 0.029)
@@ -17,6 +18,7 @@ struct ArtworkTile: View {
     let title: String
     let size: CGFloat
     var large = false
+    var artworkPath: String? = nil
 
     private var color: Color {
         let colors = [PlayerPalette.green, PlayerPalette.coral, PlayerPalette.cyan, PlayerPalette.gold]
@@ -26,15 +28,14 @@ struct ArtworkTile: View {
     var body: some View {
         ZStack {
             PlayerPalette.raised
-            Rectangle().fill(color.opacity(0.78))
-                .frame(width: size * 0.67, height: size * 0.67)
-                .rotationEffect(.degrees(large ? 12 : 8))
-            Circle().fill(PlayerPalette.background).frame(width: size * 0.34, height: size * 0.34)
-            Circle().fill(color).frame(width: size * 0.10, height: size * 0.10)
-            Image(systemName: "waveform")
-                .font(.system(size: large ? 30 : 12, weight: .bold))
-                .foregroundStyle(PlayerPalette.primary.opacity(0.9))
-                .offset(y: size * 0.32)
+            if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(color.opacity(0.78)).frame(width: size * 0.67, height: size * 0.67).rotationEffect(.degrees(large ? 12 : 8))
+                Circle().fill(PlayerPalette.background).frame(width: size * 0.34, height: size * 0.34)
+                Circle().fill(color).frame(width: size * 0.10, height: size * 0.10)
+                Image(systemName: "waveform").font(.system(size: large ? 30 : 12, weight: .bold)).foregroundStyle(PlayerPalette.primary.opacity(0.9)).offset(y: size * 0.32)
+            }
         }
         .frame(width: size, height: size)
         .clipped()

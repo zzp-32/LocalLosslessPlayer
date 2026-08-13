@@ -142,6 +142,7 @@ final class PlayerViewModel: ObservableObject {
 
     private func loadAndPlay(_ song: Song) {
         currentSong = song
+        Task { await MetadataMatcher.shared.match(song: song) }
         do {
             try service.load(
                 url: URL(fileURLWithPath: song.filePath),

@@ -3,6 +3,8 @@ import Foundation
 struct StorageConfiguration {
     static let appFolderName = "LocalLosslessPlayer"
     static let mediaFolderName = "Music"
+    static let artworkFolderName = "Artwork"
+    static let lyricsFolderName = "Lyrics"
 
     static var dataRootURL: URL {
         let fm = FileManager.default
@@ -23,5 +25,14 @@ struct StorageConfiguration {
         let root = dataRootURL.appendingPathComponent(mediaFolderName, isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    static var artworkRootURL: URL { directory(named: artworkFolderName) }
+    static var lyricsRootURL: URL { directory(named: lyricsFolderName) }
+
+    private static func directory(named name: String) -> URL {
+        let url = dataRootURL.appendingPathComponent(name, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }
