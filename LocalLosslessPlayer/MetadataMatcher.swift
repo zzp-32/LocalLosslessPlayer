@@ -3,20 +3,16 @@ import Foundation
 @MainActor
 final class MetadataMatcher {
     static let shared = MetadataMatcher()
-    private let fileManager = FileManager.default
-
     func match(song: Song) async {
         let parts = Self.splitTitle(song.title)
         let artist = song.artist.nilIfEmpty ?? parts.artist
         let title = parts.title
         guard !title.isEmpty else { return }
 
-        if song.artworkPath == nil, let artworkURL = await fetchArtwork(title: title, artist: artist) {
+        if song.artworkPath == nil, let artworkData = await fetchArtwork(title: title, artist: artist) {
             let target = StorageConfiguration.artworkRootURL.appendingPathComponent(song.checksum).appendingPathExtension("jpg")
-            if let data = try? Data(contentsOf: artworkURL) {
-                try? data.write(to: target, options: .atomic)
-                song.artworkPath = target.path
-            }
+            try? artworkData.write(to: target, options: .atomic)
+            if FileManager.default.fileExists(atPath: target.path) { song.artworkPath = target.path }
         }
         if song.lyricsPath == nil, let lyrics = await fetchLyrics(title: title, artist: artist, album: song.album) {
             let target = StorageConfiguration.lyricsRootURL.appendingPathComponent(song.checksum).appendingPathExtension("lrc")
@@ -26,7 +22,7 @@ final class MetadataMatcher {
         try? song.managedObjectContext?.save()
     }
 
-    private func fetchArtwork(title: String, artist: String?) async -> URL? {
+    private func fetchArtwork(title: String, artist: String?) async -> Data? {
         var components = URLComponents(string: "https://itunes.apple.com/search")
         components?.queryItems = [
             URLQueryItem(name: "term", value: [artist, title].compactMap { $0 }.joined(separator: " ")),
@@ -37,8 +33,10 @@ final class MetadataMatcher {
               let (data, _) = try? await URLSession.shared.data(from: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let result = (json["results"] as? [[String: Any]])?.first,
-              let artwork = result["artworkUrl100"] as? String else { return nil }
-        return URL(string: artwork.replacingOccurrences(of: "100x100", with: "600x600"))
+              let artwork = result["artworkUrl100"] as? String,
+              let artworkURL = URL(string: artwork.replacingOccurrences(of: "100x100", with: "600x600")),
+              let (imageData, _) = try? await URLSession.shared.data(from: artworkURL) else { return nil }
+        return imageData
     }
 
     private func fetchLyrics(title: String, artist: String?, album: String?) async -> String? {
@@ -57,7 +55,8 @@ final class MetadataMatcher {
     private static func splitTitle(_ raw: String) -> (artist: String?, title: String) {
         let parts = raw.components(separatedBy: " - ")
         guard parts.count > 1 else { return (nil, raw.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        return (parts.dropLast().joined(separator: " - ").trimmingCharacters(in: .whitespacesAndNewlines), parts.last!.trimmingCharacters(in: .whitespacesAndNewlines))
+        let title = parts.dropLast().joined(separator: " - ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = parts.last!.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (artist, title)
     }
 }
-

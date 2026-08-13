@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showingImporter = false
     @State private var showingFolderPicker = false
-    @State private var showingImportOptions = false
+    
     @State private var showingMenu = false
 
     init() {
@@ -62,7 +62,7 @@ struct ContentView: View {
         NavigationStack {
             ZStack {
                 PlayerPalette.background.ignoresSafeArea()
-                LibraryHome(library: library, showImporter: { showingImportOptions = true })
+                LibraryHome(library: library, showImporter: { showingFolderPicker = true })
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -78,15 +78,6 @@ struct ContentView: View {
             }
             .toolbarBackground(PlayerPalette.background, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .navigationTitle("音乐库")
-            .navigationBarTitleDisplayMode(.large)
-            .confirmationDialog("导入音乐", isPresented: $showingImportOptions, titleVisibility: .visible) {
-                Button("选择歌曲（可多选）") { showingImporter = true }
-                Button("导入整个文件夹") { showingFolderPicker = true }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("可一次导入几百首歌曲，支持子文件夹。")
-            }
         }
         .tabItem { Label("音乐库", systemImage: "rectangle.stack.fill") }
     }
