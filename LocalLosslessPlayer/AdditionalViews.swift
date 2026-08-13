@@ -217,6 +217,8 @@ struct AudioInfoView: View {
 struct LyricsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerViewModel
+    @State private var lines: [LyricLine] = []
+    @State private var currentIndex = 0
 
     var body: some View {
         ZStack {
@@ -227,16 +229,131 @@ struct LyricsView: View {
                     VStack(spacing: 14) { Spacer(); Image(systemName: "text.quote").font(.system(size: 34)).foregroundStyle(PlayerPalette.green); Text("暂未找到歌词").font(.title3.weight(.semibold)).foregroundStyle(PlayerPalette.primary); Text(song.title).font(.subheadline).foregroundStyle(PlayerPalette.secondary); Text("支持内嵌歌词和同名 .lrc 文件").font(.caption).foregroundStyle(PlayerPalette.secondary); Spacer() }.multilineTextAlignment(.center)
                 } else { Spacer(); Text("开始播放后显示歌词").foregroundStyle(PlayerPalette.secondary); Spacer() }
             }.padding(.horizontal, 20)
-        }.preferredColorScheme(.dark)
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { loadLyrics() }
+        .onChange(of: player.currentTime) { _ in updateCurrentLine() }
+        .onChange(of: player.currentSong?.objectID) { _ in loadLyrics() }
+    }
+
+    private func loadLyrics() {
+        guard let song = player.currentSong else { lines = []; return }
+        let url = URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
+        currentIndex = 0
+    }
+
+    private func updateCurrentLine() {
+        guard !lines.isEmpty else { return }
+        currentIndex = max(0, lines.lastIndex(where: { $0.time <= player.currentTime }) ?? 0)
+    }
+}
+
+struct LyricLine { let time: Double; let text: String }
+
+enum LyricParser {
+    static func parse(_ content: String) -> [LyricLine] {
+        content.split(whereSeparator: \.isNewline).compactMap { raw in
+            let line = String(raw)
+            guard let close = line.firstIndex(of: "]"), line.first == "[" else { return nil }
+            let stamp = String(line[line.index(after: line.startIndex)..<close])
+            let parts = stamp.split(separator: ":")
+            guard parts.count == 2, let minute = Double(parts[0]), let seconds = Double(parts[1]) else { return nil }
+            let text = String(line[line.index(after: close)...]).trimmingCharacters(in: .whitespaces)
+            return LyricLine(time: minute * 60 + seconds, text: text)
+        }.sorted { $0.time < $1.time }
+    }
+}
+
+struct RealLyricsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var player: PlayerViewModel
+    @State private var lines: [LyricLine] = []
+    @State private var currentIndex = 0
+
+    var body: some View {
+        ZStack {
+            PlayerPalette.background.ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack {
+                    Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 40, height: 40) }
+                    Spacer(); Text("歌词").font(.headline); Spacer(); Color.clear.frame(width: 40, height: 40)
+                }.foregroundStyle(PlayerPalette.primary)
+                if lines.isEmpty {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "text.quote").font(.system(size: 34)).foregroundStyle(PlayerPalette.green)
+                        Text("暂未找到歌词").font(.title3.weight(.semibold)).foregroundStyle(PlayerPalette.primary)
+                        Text("请将同名 .lrc 文件和歌曲一起导入").font(.caption).foregroundStyle(PlayerPalette.secondary)
+                    }.multilineTextAlignment(.center)
+                    Spacer()
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 18) {
+                                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                    Text(line.text)
+                                        .font(index == currentIndex ? .title3.weight(.bold) : .body)
+                                        .foregroundStyle(index == currentIndex ? PlayerPalette.green : PlayerPalette.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                        .id(index)
+                                }
+                            }.padding(.vertical, 120)
+                        }
+                        .onChange(of: currentIndex) { index in withAnimation { proxy.scrollTo(index, anchor: .center) } }
+                    }
+                }
+            }.padding(.horizontal, 20)
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { reload() }
+        .onChange(of: player.currentTime) { _ in sync() }
+        .onChange(of: player.currentSong?.objectID) { _ in reload() }
+    }
+
+    private func reload() {
+        guard let song = player.currentSong else { lines = []; return }
+        let url = URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
+        currentIndex = 0
+    }
+
+    private func sync() {
+        guard !lines.isEmpty else { return }
+        currentIndex = max(0, lines.lastIndex(where: { $0.time <= player.currentTime }) ?? 0)
+    }
+}
+
+struct LivePlaybackView: View {
+    @EnvironmentObject private var player: PlayerViewModel
+    @EnvironmentObject private var settings: AppSettings
+    @State private var showingLyrics = false
+
+    var body: some View {
+        ZStack {
+            PlayerPalette.background.ignoresSafeArea()
+            if player.currentSong == nil {
+                VStack(spacing: 14) {
+                    Image(systemName: "play.circle").font(.system(size: 42)).foregroundStyle(PlayerPalette.green)
+                    Text("还没有正在播放的歌曲").foregroundStyle(PlayerPalette.secondary)
+                }
+            } else {
+                NowPlayingView()
+                    .environmentObject(player)
+                    .environmentObject(settings)
+            }
+        }
+        .sheet(isPresented: $showingLyrics) { RealLyricsView().environmentObject(player) }
+        .preferredColorScheme(.dark)
     }
 }
 
 struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerViewModel
-    @EnvironmentObject private var favorites: FavoritesStore
     @EnvironmentObject private var settings: AppSettings
-    let showLyrics: () -> Void
+    @State private var showingLyrics = false
 
     var body: some View {
         ZStack {
@@ -247,7 +364,7 @@ struct NowPlayingView: View {
                     Spacer()
                     Text("正在播放").font(.caption.weight(.semibold)).foregroundStyle(PlayerPalette.secondary)
                     Spacer()
-                    Button(action: showLyrics) { Image(systemName: "text.quote").frame(width: 40, height: 40) }.accessibilityLabel("打开歌词")
+                    Button { showingLyrics = true } label: { Image(systemName: "text.quote").frame(width: 40, height: 40) }.accessibilityLabel("打开歌词")
                 }
                 .foregroundStyle(PlayerPalette.primary)
                 .padding(.top, 4)
@@ -262,9 +379,6 @@ struct NowPlayingView: View {
                         Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家").font(.subheadline).foregroundStyle(PlayerPalette.secondary).lineLimit(1)
                     }
                     Spacer()
-                    if let song = player.currentSong {
-                        Button { favorites.toggle(song) } label: { Image(systemName: favorites.contains(song) ? "heart.fill" : "heart").font(.title3).foregroundStyle(favorites.contains(song) ? PlayerPalette.coral : PlayerPalette.primary) }.accessibilityLabel("收藏歌曲")
-                    }
                 }
                 .padding(.bottom, 18)
 
@@ -289,5 +403,6 @@ struct NowPlayingView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { player.apply(settings: settings) }
+        .sheet(isPresented: $showingLyrics) { RealLyricsView().environmentObject(player) }
     }
 }

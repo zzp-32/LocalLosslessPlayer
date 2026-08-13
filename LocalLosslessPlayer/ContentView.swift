@@ -4,14 +4,12 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
-    @EnvironmentObject private var favorites: FavoritesStore
     @StateObject private var library: LibraryViewModel
     @State private var selectedTab = 0
     @State private var showingImporter = false
     @State private var showingFolderPicker = false
     @State private var showingImportOptions = false
     @State private var showingPlayer = false
-    @State private var showingLyrics = false
     @State private var showingMenu = false
 
     init() {
@@ -23,7 +21,7 @@ struct ContentView: View {
             PlayerPalette.background.ignoresSafeArea()
             TabView(selection: $selectedTab) {
                 libraryTab.tag(0)
-                playlistsTab.tag(1)
+                livePlayerTab.tag(1)
                 searchTab.tag(2)
             }
             .tint(PlayerPalette.green)
@@ -45,14 +43,9 @@ struct ContentView: View {
             .ignoresSafeArea()
         }
         .fullScreenCover(isPresented: $showingPlayer) {
-            NowPlayingView(showLyrics: { showingLyrics = true })
+            NowPlayingView()
                 .environmentObject(player)
-                .environmentObject(favorites)
                 .environmentObject(settings)
-        }
-        .fullScreenCover(isPresented: $showingLyrics) {
-            LyricsView()
-                .environmentObject(player)
         }
         .sheet(isPresented: $showingMenu) {
             FunctionMenuView()
@@ -101,15 +94,12 @@ struct ContentView: View {
         .tabItem { Label("音乐库", systemImage: "rectangle.stack.fill") }
     }
 
-    private var playlistsTab: some View {
+    private var livePlayerTab: some View {
         NavigationStack {
-            FavoritesView(library: library, showPlayer: { showingPlayer = true })
-                .navigationTitle("播放列表")
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if player.currentSong != nil { MiniPlayer(showPlayer: { showingPlayer = true }) }
-                }
+            LivePlaybackView().environmentObject(player).environmentObject(settings)
+                .navigationTitle("正在播放")
         }
-        .tabItem { Label("播放列表", systemImage: "music.note.list") }
+        .tabItem { Label("正在播放", systemImage: "play.circle.fill") }
     }
 
     private var searchTab: some View {
@@ -130,7 +120,6 @@ struct ContentView: View {
 
 private struct LibraryHome: View {
     @EnvironmentObject private var player: PlayerViewModel
-    @EnvironmentObject private var favorites: FavoritesStore
     @ObservedObject var library: LibraryViewModel
     @State private var searchText = ""
     @State private var sortByTitle = false
@@ -188,9 +177,9 @@ private struct LibraryHome: View {
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(songs, id: \.objectID) { song in
-                            SongRow(song: song, current: player.currentSong == song, favorite: favorites.contains(song)) {
+                            SongRow(song: song, current: player.currentSong == song) {
                                 player.play(song, queue: songs); showPlayer()
-                            } toggleFavorite: { favorites.toggle(song) }
+                            }
                             Divider().overlay(PlayerPalette.line).padding(.leading, 82)
                         }
                     }.padding(.bottom, 24)
@@ -204,9 +193,7 @@ private struct LibraryHome: View {
 private struct SongRow: View {
     let song: Song
     let current: Bool
-    let favorite: Bool
     let action: () -> Void
-    let toggleFavorite: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -219,34 +206,8 @@ private struct SongRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }.buttonStyle(.plain)
             Text(timeText(song.duration)).font(.caption.monospacedDigit()).foregroundStyle(PlayerPalette.secondary)
-            Button(action: toggleFavorite) {
-                Image(systemName: favorite ? "heart.fill" : "heart").foregroundStyle(favorite ? PlayerPalette.coral : PlayerPalette.secondary)
-            }.accessibilityLabel(favorite ? "取消收藏" : "收藏")
         }
         .padding(.horizontal, 20).frame(height: 70)
-    }
-}
-
-private struct FavoritesView: View {
-    @EnvironmentObject private var player: PlayerViewModel
-    @EnvironmentObject private var favorites: FavoritesStore
-    @ObservedObject var library: LibraryViewModel
-    let showPlayer: () -> Void
-
-    private var songs: [Song] { library.songs.filter { favorites.contains($0) } }
-
-    var body: some View {
-        ZStack {
-            PlayerPalette.background.ignoresSafeArea()
-            if songs.isEmpty {
-                VStack(spacing: 14) { Image(systemName: "heart").font(.system(size: 38)).foregroundStyle(PlayerPalette.coral); Text("还没有收藏歌曲").foregroundStyle(PlayerPalette.secondary) }
-            } else {
-                List(songs, id: \.objectID) { song in
-                    SongRow(song: song, current: player.currentSong == song, favorite: true) { player.play(song, queue: songs); showPlayer() } toggleFavorite: { favorites.toggle(song) }
-                        .listRowBackground(PlayerPalette.background).listRowSeparatorTint(PlayerPalette.line)
-                }.scrollContentBackground(.hidden)
-            }
-        }
     }
 }
 

@@ -39,22 +39,3 @@ final class AppSettings: ObservableObject {
         defaults.set(theme.rawValue, forKey: "theme")
     }
 }
-
-@MainActor
-final class FavoritesStore: ObservableObject {
-    @Published private(set) var ids: Set<String>
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        ids = Set(defaults.stringArray(forKey: "favorite.song.ids") ?? [])
-    }
-
-    func contains(_ song: Song) -> Bool { ids.contains(song.id.uuidString) }
-
-    func toggle(_ song: Song) {
-        let id = song.id.uuidString
-        if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
-        defaults.set(Array(ids), forKey: "favorite.song.ids")
-    }
-}
