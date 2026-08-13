@@ -15,13 +15,35 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Show Xcode version
         run: xcodebuild -version
 
       - name: Build unsigned arm64 IPA
-        run: bash scripts/build-trollstore-ipa.sh
+        id: ipa-build
+        shell: bash
+        run: |
+          set +e
+          bash scripts/build-trollstore-ipa.sh 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do
+              message=${line//'%'/'%25'}
+              message=${message//$'\r'/'%0D'}
+              message=${message//$'\n'/'%0A'}
+              echo "::error title=Xcode build error::$message"
+            done < <(grep -E '(^|[[:space:]])(error:|fatal error:)' build.log | tail -20)
+          fi
+          exit "$status"
+
+      - name: Upload build log on failure
+        if: failure() && steps.ipa-build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-build-log
+          path: build.log
+          if-no-files-found: error
 
       - name: Verify IPA contents
         run: |
