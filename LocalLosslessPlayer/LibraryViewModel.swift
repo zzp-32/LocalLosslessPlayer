@@ -5,6 +5,8 @@ import SwiftUI
 final class LibraryViewModel: ObservableObject {
     @Published var songs: [Song] = []
     @Published var errorMessage: String?
+    @Published var statusMessage: String?
+    @Published var isImporting = false
     private let context: NSManagedObjectContext
 
     init(context: NSManagedObjectContext) { self.context = context; refresh() }
@@ -14,8 +16,16 @@ final class LibraryViewModel: ObservableObject {
         songs = (try? context.fetch(request)) ?? []
     }
 
-    func importFiles(_ urls: [URL]) {
-        do { _ = try FileImporterService(context: context).importFiles(urls); refresh() }
-        catch { errorMessage = error.localizedDescription }
+    func importFiles(_ urls: [URL]) async {
+        guard !urls.isEmpty, !isImporting else { return }
+        isImporting = true
+        let result = await FileImporterService(context: context).importFiles(urls)
+        refresh()
+        isImporting = false
+        if result.importedCount == 0, !result.failures.isEmpty {
+            errorMessage = result.message
+        } else {
+            statusMessage = result.message
+        }
     }
 }

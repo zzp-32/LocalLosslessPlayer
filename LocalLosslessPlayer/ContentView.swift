@@ -23,9 +23,20 @@ struct ContentView: View {
             .navigationTitle("本地音乐")
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button { showingImporter = true } label: { Image(systemName: "plus") } } }
             .safeAreaInset(edge: .bottom) { MiniPlayer() }
+            .overlay {
+                if library.isImporting {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在导入音乐…").font(.subheadline)
+                    }
+                    .padding(20)
+                    .background(.regularMaterial)
+                    .cornerRadius(8)
+                }
+            }
             .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
                 switch result {
-                case .success(let urls): library.importFiles(urls)
+                case .success(let urls): Task { await library.importFiles(urls) }
                 case .failure(let error): library.errorMessage = error.localizedDescription
                 }
             }
@@ -34,6 +45,12 @@ struct ContentView: View {
                 set: { if !$0 { library.errorMessage = nil } }
             )) { Button("好") { library.errorMessage = nil } } message: {
                 Text(library.errorMessage ?? "未知错误")
+            }
+            .alert("导入完成", isPresented: Binding(
+                get: { library.statusMessage != nil },
+                set: { if !$0 { library.statusMessage = nil } }
+            )) { Button("好") { library.statusMessage = nil } } message: {
+                Text(library.statusMessage ?? "")
             }
         }
     }
