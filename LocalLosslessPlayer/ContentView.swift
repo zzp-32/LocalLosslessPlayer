@@ -8,6 +8,8 @@ struct ContentView: View {
     @StateObject private var library: LibraryViewModel
     @State private var selectedTab = 0
     @State private var showingImporter = false
+    @State private var showingFolderPicker = false
+    @State private var showingImportOptions = false
     @State private var showingPlayer = false
     @State private var showingLyrics = false
     @State private var showingMenu = false
@@ -32,6 +34,13 @@ struct ContentView: View {
             DocumentPicker { urls in
                 showingImporter = false
                 Task { await library.importFiles(urls) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingFolderPicker) {
+            FolderPicker { folder in
+                showingFolderPicker = false
+                Task { await library.importFolder(folder) }
             }
             .ignoresSafeArea()
         }
@@ -66,7 +75,7 @@ struct ContentView: View {
         NavigationStack {
             ZStack {
                 PlayerPalette.background.ignoresSafeArea()
-                LibraryHome(library: library, showImporter: { showingImporter = true }, showPlayer: { showingPlayer = true })
+                LibraryHome(library: library, showImporter: { showingImportOptions = true }, showPlayer: { showingPlayer = true })
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -81,6 +90,13 @@ struct ContentView: View {
             }
             .navigationTitle("音乐库")
             .navigationBarTitleDisplayMode(.large)
+            .confirmationDialog("导入音乐", isPresented: $showingImportOptions, titleVisibility: .visible) {
+                Button("选择歌曲（可多选）") { showingImporter = true }
+                Button("导入整个文件夹") { showingFolderPicker = true }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("可一次导入几百首歌曲，支持子文件夹。")
+            }
         }
         .tabItem { Label("音乐库", systemImage: "rectangle.stack.fill") }
     }

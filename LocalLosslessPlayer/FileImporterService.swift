@@ -23,6 +23,30 @@ final class FileImporterService {
 
     init(context: NSManagedObjectContext) { self.context = context }
 
+    static func audioFiles(in folder: URL) async -> [URL] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let extensions = Set(["flac", "alac", "wav", "wave", "aif", "aiff", "m4a", "mp3", "aac", "caf"])
+                let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .contentTypeKey]
+                let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+                var files: [URL] = []
+                if let enumerator = FileManager.default.enumerator(
+                    at: folder,
+                    includingPropertiesForKeys: keys,
+                    options: options
+                ) {
+                    for case let url as URL in enumerator {
+                        guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                              values.isRegularFile == true,
+                              extensions.contains(url.pathExtension.lowercased()) else { continue }
+                        files.append(url)
+                    }
+                }
+                continuation.resume(returning: files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending })
+            }
+        }
+    }
+
     func importFiles(
         _ urls: [URL],
         progress: (String, Int, Int) -> Void
@@ -38,6 +62,9 @@ final class FileImporterService {
                 switch outcome {
                 case .imported: importedCount += 1
                 case .duplicate: duplicateCount += 1
+                }
+                if importedCount > 0, importedCount % 25 == 0, context.hasChanges {
+                    try context.save()
                 }
             } catch {
                 failures.append("\(source.lastPathComponent)：\(error.localizedDescription)")

@@ -33,6 +33,20 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    func importFolder(_ folder: URL) async {
+        guard !isImporting else { return }
+        isImporting = true
+        importProgress = "正在扫描文件夹…"
+        let files = await FileImporterService.audioFiles(in: folder)
+        isImporting = false
+        guard !files.isEmpty else {
+            errorMessage = "文件夹中没有找到支持的音频文件（FLAC、ALAC、WAV、AIFF、M4A、MP3）。"
+            importProgress = ""
+            return
+        }
+        await importFiles(files)
+    }
+
     func delete(_ song: Song) {
         try? FileManager.default.removeItem(atPath: song.filePath)
         context.delete(song)
