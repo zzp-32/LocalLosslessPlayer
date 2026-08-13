@@ -1,0 +1,36 @@
+name: Build TrollStore IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned arm64 IPA
+        run: bash scripts/build-trollstore-ipa.sh
+
+      - name: Verify IPA contents
+        run: |
+          unzip -l LocalLosslessPlayer-TrollStore.ipa
+          test "$(unzip -Z1 LocalLosslessPlayer-TrollStore.ipa | grep -c '^Payload/LocalLosslessPlayer.app/LocalLosslessPlayer$')" -eq 1
+
+      - name: Upload TrollStore IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalLosslessPlayer-TrollStore
+          path: LocalLosslessPlayer-TrollStore.ipa
+          if-no-files-found: error
