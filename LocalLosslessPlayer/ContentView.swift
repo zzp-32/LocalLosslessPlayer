@@ -24,9 +24,26 @@ struct ContentView: View {
                 searchTab.tag(2)
             }
             .tint(PlayerPalette.green)
+            if library.isImporting {
+                VStack(spacing: 12) {
+                    ProgressView().tint(PlayerPalette.green)
+                    Text(library.importProgress.isEmpty ? "正在导入音乐…" : library.importProgress)
+                        .font(.footnote)
+                        .foregroundStyle(PlayerPalette.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 18)
+                .background(PlayerPalette.surface)
+                .cornerRadius(10)
+                .shadow(radius: 12)
+                .padding(32)
+            }
         }
         .preferredColorScheme(settings.theme == .light ? .light : .dark)
         .onAppear { player.apply(settings: settings) }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
         .sheet(isPresented: $showingImporter) {
             DocumentPicker { urls in
                 showingImporter = false

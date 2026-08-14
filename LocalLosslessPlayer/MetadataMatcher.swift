@@ -20,6 +20,7 @@ final class MetadataMatcher {
             song.lyricsPath = target.path
         }
         try? song.managedObjectContext?.save()
+        NotificationCenter.default.post(name: .songMetadataUpdated, object: song.objectID)
     }
 
     private func fetchArtwork(title: String, artist: String?) async -> Data? {
@@ -59,4 +60,8 @@ final class MetadataMatcher {
         let artist = parts.last!.trimmingCharacters(in: .whitespacesAndNewlines)
         return (artist, title)
     }
+}
+
+extension Notification.Name {
+    static let songMetadataUpdated = Notification.Name("LocalLosslessPlayer.songMetadataUpdated")
 }

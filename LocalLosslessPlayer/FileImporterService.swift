@@ -101,9 +101,10 @@ final class FileImporterService {
 
             let song = Song(context: context)
             song.id = UUID()
-            song.title = source.deletingPathExtension().lastPathComponent
-            song.artist = nil
-            song.album = nil
+            let metadata = AVURLAsset(url: destination).commonMetadata
+            song.title = metadataValue(metadata, key: .commonKeyTitle) ?? source.deletingPathExtension().lastPathComponent
+            song.artist = metadataValue(metadata, key: .commonKeyArtist)
+            song.album = metadataValue(metadata, key: .commonKeyAlbumName)
             song.fileName = destination.lastPathComponent
             song.filePath = destination.path
             song.checksum = checksum
@@ -164,4 +165,8 @@ final class FileImporterService {
         let seconds = CMTimeGetSeconds(time)
         return seconds.isFinite ? max(0, seconds) : 0
     }
+}
+
+private func metadataValue(_ items: [AVMetadataItem], key: AVMetadataKey) -> String? {
+    items.first { $0.commonKey == key }?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 }
