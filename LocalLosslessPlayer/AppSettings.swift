@@ -9,8 +9,6 @@ final class AppSettings: ObservableObject {
     @Published var playbackRate: Double { didSet { persist() } }
     @Published var loudness: Bool { didSet { persist() } }
     @Published var theme: Theme { didSet { persist() } }
-    @Published var libraryFolderBookmark: Data? { didSet { persist() } }
-    @Published var libraryFolderDisplayName: String? { didSet { persist() } }
 
     enum Theme: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -30,8 +28,6 @@ final class AppSettings: ObservableObject {
         playbackRate = defaults.object(forKey: "playback.rate") as? Double ?? 1
         loudness = defaults.object(forKey: "eq.loudness") as? Bool ?? false
         theme = Theme(rawValue: defaults.string(forKey: "theme") ?? "dark") ?? .dark
-        libraryFolderBookmark = defaults.data(forKey: "library.folder.bookmark")
-        libraryFolderDisplayName = defaults.string(forKey: "library.folder.name")
     }
 
     private func persist() {
@@ -41,7 +37,5 @@ final class AppSettings: ObservableObject {
         defaults.set(playbackRate, forKey: "playback.rate")
         defaults.set(loudness, forKey: "eq.loudness")
         defaults.set(theme.rawValue, forKey: "theme")
-        defaults.set(libraryFolderBookmark, forKey: "library.folder.bookmark")
-        defaults.set(libraryFolderDisplayName, forKey: "library.folder.name")
     }
 }

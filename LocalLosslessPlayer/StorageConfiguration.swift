@@ -22,7 +22,8 @@ struct StorageConfiguration {
     }
 
     static var mediaRootURL: URL {
-        let root = dataRootURL.appendingPathComponent(mediaFolderName, isDirectory: true)
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let root = documents.appendingPathComponent(mediaFolderName, isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

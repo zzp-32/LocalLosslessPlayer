@@ -12,8 +12,9 @@ final class LibraryViewModel: ObservableObject {
 
     init(context: NSManagedObjectContext) {
         self.context = context
+        _ = StorageConfiguration.mediaRootURL
         refresh()
-        Task { await rescanSavedFolder() }
+        Task { await scanMusicFolder(reportStatus: false) }
     }
 
     func refresh() {
@@ -22,10 +23,43 @@ final class LibraryViewModel: ObservableObject {
         songs = (try? context.fetch(request)) ?? []
     }
 
-    func importFiles(_ urls: [URL], rootFolder: URL? = nil, rootBookmark: Data? = nil, reportStatus: Bool = true) async {
+    func scanMusicFolder(reportStatus: Bool = true) async {
+        guard !isImporting else { return }
+        let folder = StorageConfiguration.mediaRootURL
+        print("[MusicFolder] Scan started = \(folder.path)")
+        isImporting = true
+        importProgress = "正在扫描 Music 文件夹…"
+        let scan = await FileImporterService.audioFiles(in: folder)
+        isImporting = false
+        importProgress = ""
+        print("[MusicFolder] Music files found = \(scan.files.count)")
+
+        guard !scan.files.isEmpty else {
+            if reportStatus {
+                statusMessage = "Music 文件夹中暂时没有找到支持的歌曲。"
+            }
+            return
+        }
+
+        await importFiles(
+            scan.files,
+            rootFolder: folder,
+            reportStatus: reportStatus
+        )
+    }
+
+    private func importFiles(
+        _ urls: [URL],
+        rootFolder: URL,
+        reportStatus: Bool
+    ) async {
         guard !urls.isEmpty, !isImporting else { return }
         isImporting = true
-        let result = await FileImporterService(context: context).importFiles(urls, rootFolder: rootFolder, rootBookmark: rootBookmark) { [weak self] name, current, total in
+        let result = await FileImporterService(context: context).importFiles(
+            urls,
+            rootFolder: rootFolder,
+            rootBookmark: nil
+        ) { [weak self] name, current, total in
             self?.importProgress = "\(current)/\(total)  \(name)"
         }
         refresh()
@@ -37,61 +71,6 @@ final class LibraryViewModel: ObservableObject {
         } else {
             statusMessage = result.message
         }
-    }
-
-    func importFolder(_ folder: URL) async {
-        guard !isImporting else { return }
-        let hasAccess = folder.startAccessingSecurityScopedResource()
-        defer { if hasAccess { folder.stopAccessingSecurityScopedResource() } }
-        print("[Import] Root folder security scope = \(hasAccess), path = \(folder.path)")
-
-        guard let bookmark = saveFolderBookmark(folder) else { return }
-        isImporting = true
-        importProgress = "Scanning folder..."
-        let scan = await FileImporterService.audioFiles(in: folder)
-        isImporting = false
-        guard !scan.files.isEmpty else {
-            errorMessage = scan.diagnosticMessage
-            importProgress = ""
-            return
-        }
-        await importFiles(scan.files, rootFolder: folder, rootBookmark: bookmark)
-        if scan.inaccessibleCount > 0 || scan.coordinatorError != nil || !scan.enumerationErrors.isEmpty {
-            statusMessage = (statusMessage ?? "Import finished") + "\n" + scan.diagnosticMessage
-        }
-    }
-
-    func rescanSavedFolder() async {
-        guard let data = UserDefaults.standard.data(forKey: "library.folder.bookmark") else { return }
-        var stale = false
-        guard let folder = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
-            print("[Import] Saved folder bookmark could not be resolved")
-            return
-        }
-        var activeBookmark = data
-        if stale, let renewed = try? SourceReference.bookmark(for: folder) {
-            UserDefaults.standard.set(renewed, forKey: "library.folder.bookmark")
-            activeBookmark = renewed
-        }
-        let hasAccess = folder.startAccessingSecurityScopedResource()
-        defer { if hasAccess { folder.stopAccessingSecurityScopedResource() } }
-        print("[Import] Restored folder bookmark, stale = \(stale), scope = \(hasAccess)")
-        let scan = await FileImporterService.audioFiles(in: folder)
-        guard !scan.files.isEmpty else {
-            print("[Import] Restored folder scan returned no files: \(scan.diagnosticMessage)")
-            return
-        }
-        await importFiles(scan.files, rootFolder: folder, rootBookmark: activeBookmark, reportStatus: false)
-    }
-
-    private func saveFolderBookmark(_ folder: URL) -> Data? {
-        guard let data = try? SourceReference.bookmark(for: folder) else {
-            errorMessage = "Unable to save folder permission. Please select it again."
-            return nil
-        }
-        UserDefaults.standard.set(data, forKey: "library.folder.bookmark")
-        UserDefaults.standard.set(folder.lastPathComponent, forKey: "library.folder.name")
-        return data
     }
 
     func delete(_ song: Song) {

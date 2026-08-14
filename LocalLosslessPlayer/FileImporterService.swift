@@ -190,12 +190,16 @@ final class FileImporterService {
 
         let relativePath = rootFolder.flatMap { SourceReference.relativePath(of: source, in: $0) }
         let fileBookmark: Data?
-        do {
-            fileBookmark = try SourceReference.bookmark(for: source)
-        } catch {
-            guard rootBookmark != nil, relativePath != nil else { throw error }
+        if rootBookmark == nil, relativePath != nil {
             fileBookmark = nil
-            print("[Import] Child bookmark unavailable; using root bookmark + relative path for \(source.lastPathComponent): \(error.localizedDescription)")
+        } else {
+            do {
+                fileBookmark = try SourceReference.bookmark(for: source)
+            } catch {
+                guard rootBookmark != nil, relativePath != nil else { throw error }
+                fileBookmark = nil
+                print("[Import] Child bookmark unavailable; using root bookmark + relative path for \(source.lastPathComponent): \(error.localizedDescription)")
+            }
         }
         let values = try readURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let checksum = fastIdentifier(

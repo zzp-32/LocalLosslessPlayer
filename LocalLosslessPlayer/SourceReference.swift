@@ -29,6 +29,11 @@ enum SourceReference {
             return root.appendingPathComponent(relativePath)
         }
 
+        if song.sourceRootBookmark == nil,
+           let relativePath = song.sourceRelativePath {
+            return StorageConfiguration.mediaRootURL.appendingPathComponent(relativePath)
+        }
+
         if let bookmark = song.sourceBookmark,
            let resolved = resolveBookmark(bookmark) {
             return resolved.url

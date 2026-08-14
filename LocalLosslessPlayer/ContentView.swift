@@ -2,12 +2,11 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var library: LibraryViewModel
     @State private var selectedTab = 0
-    @State private var importPickerMode: ImportPickerMode?
-
     @State private var showingMenu = false
 
     init() {
@@ -42,15 +41,12 @@ struct ContentView: View {
         }
         .preferredColorScheme(settings.theme == .light ? .light : .dark)
         .onAppear { player.apply(settings: settings) }
-        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
-        .sheet(item: $importPickerMode) { mode in
-            DocumentPicker(
-                mode: mode,
-                onPick: handlePickerSelection,
-                onCancel: { importPickerMode = nil }
-            )
-            .ignoresSafeArea()
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await library.scanMusicFolder(reportStatus: false) }
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
         .sheet(isPresented: $showingMenu) {
             FunctionMenuView()
                 .environmentObject(player)
@@ -74,8 +70,8 @@ struct ContentView: View {
                 PlayerPalette.background.ignoresSafeArea()
                 LibraryHome(
                     library: library,
-                    showSongImporter: { importPickerMode = .songs },
-                    showFolderImporter: { importPickerMode = .folder }
+                    openFilesApp: openFilesApp,
+                    scanMusicFolder: { Task { await library.scanMusicFolder() } }
                 )
             }
             .toolbar {
@@ -86,7 +82,7 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { Task { await library.rescanSavedFolder() } } label: { Image(systemName: "arrow.clockwise") }
+                    Button { Task { await library.scanMusicFolder() } } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel("刷新歌库")
                 }
             }
@@ -115,41 +111,10 @@ struct ContentView: View {
         Binding(get: { message.wrappedValue != nil }, set: { if !$0 { message.wrappedValue = nil } })
     }
 
-    private func handlePickerSelection(_ resources: [PickedResource]) {
-        let mode = importPickerMode
-        importPickerMode = nil
-        print("[Picker] Result delivered to ContentView, mode = \(mode?.rawValue ?? "unknown")")
-
-        guard !resources.isEmpty else {
-            library.errorMessage = "文件选择器返回了空的 URL 列表。"
-            return
-        }
-
-        switch mode {
-        case .folder:
-            guard let folder = resources.first else { return }
-            defer { folder.releaseAccess() }
-            guard folder.isDirectory else {
-                library.errorMessage = "选择器返回的 URL 不是文件夹：\(folder.url.lastPathComponent)"
-                return
-            }
-            guard folder.bookmarkData != nil else {
-                library.errorMessage = "已收到文件夹 URL，但 bookmark 创建失败：\(folder.bookmarkError ?? "未知错误")"
-                return
-            }
-            library.statusMessage = "文件夹选择回调成功\n\(folder.url.path)"
-            print("[Picker] Folder callback phase completed; scan intentionally not started")
-
-        case .songs:
-            Task {
-                defer { resources.forEach { $0.releaseAccess() } }
-                await library.importFiles(resources.map(\.url))
-            }
-
-        case nil:
-            resources.forEach { $0.releaseAccess() }
-            library.errorMessage = "文件选择器返回结果时导入模式已经丢失。"
-        }
+    private func openFilesApp() {
+        _ = StorageConfiguration.mediaRootURL
+        guard let url = URL(string: "shareddocuments://") else { return }
+        UIApplication.shared.open(url)
     }
 }
 
@@ -158,8 +123,8 @@ private struct LibraryHome: View {
     @ObservedObject var library: LibraryViewModel
     @State private var searchText = ""
     @State private var sortByTitle = false
-    let showSongImporter: () -> Void
-    let showFolderImporter: () -> Void
+    let openFilesApp: () -> Void
+    let scanMusicFolder: () -> Void
 
     private var songs: [Song] {
         let source = searchText.isEmpty ? library.songs : library.songs.filter {
@@ -180,11 +145,8 @@ private struct LibraryHome: View {
                     }
                     Spacer()
                     Menu {
-                        Button(action: showSongImporter) { Label("导入歌曲", systemImage: "doc.badge.plus") }
-                        Button(action: showFolderImporter) { Label("导入文件夹", systemImage: "folder.badge.plus") }
-                        if UserDefaults.standard.data(forKey: "library.folder.bookmark") != nil {
-                            Button(action: showFolderImporter) { Label("重新定位文件夹", systemImage: "folder.badge.questionmark") }
-                        }
+                        Button(action: openFilesApp) { Label("打开“文件”App", systemImage: "folder") }
+                        Button(action: scanMusicFolder) { Label("扫描 Music 文件夹", systemImage: "arrow.clockwise") }
                     } label: {
                         Image(systemName: "plus").font(.system(size: 19, weight: .bold))
                             .foregroundStyle(PlayerPalette.background).frame(width: 42, height: 42)
@@ -213,7 +175,7 @@ private struct LibraryHome: View {
                     VStack(spacing: 14) {
                         Image(systemName: searchText.isEmpty ? "waveform" : "magnifyingglass").font(.system(size: 38)).foregroundStyle(PlayerPalette.green)
                         Text(searchText.isEmpty ? "还没有音乐" : "没有找到歌曲").font(.headline).foregroundStyle(PlayerPalette.primary)
-                        if searchText.isEmpty { Button("导入文件夹", action: showFolderImporter).buttonStyle(.borderedProminent).tint(PlayerPalette.green) }
+                        if searchText.isEmpty { Button("打开“文件”App", action: openFilesApp).buttonStyle(.borderedProminent).tint(PlayerPalette.green) }
                     }.frame(maxWidth: .infinity).padding(.top, 100)
                 } else {
                     LazyVStack(spacing: 0) {

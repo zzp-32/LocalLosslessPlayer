@@ -22,6 +22,8 @@ targets:
         UIBackgroundModes:
           - audio
         UISupportsDocumentBrowser: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.localplayer.LocalLosslessPlayer
