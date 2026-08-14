@@ -302,6 +302,7 @@ private struct LyricsSettingsView: View {
 
                 Section("行间距设置") {
                     lyricSlider(title: "歌词行间距", value: $settings.lyricLineSpacing, range: 8...36)
+                    lyricSlider(title: "歌词时间偏移（秒）", value: $settings.lyricOffset, range: -1...1)
                 }
 
                 Section("对齐方式") {
@@ -736,7 +737,7 @@ private struct InlineLyricsView: View {
                     )
                     .onChange(of: currentIndex) { index in
                         guard isFollowingPlayback else { return }
-                        withAnimation(.easeInOut(duration: 0.32)) {
+                        withAnimation(.easeOut(duration: 0.12)) {
                             proxy.scrollTo(index, anchor: .center)
                         }
                     }
@@ -750,7 +751,7 @@ private struct InlineLyricsView: View {
                         Button {
                             isFollowingPlayback = true
                             syncCurrentLine()
-                            withAnimation(.easeInOut(duration: 0.32)) {
+                            withAnimation(.easeOut(duration: 0.12)) {
                                 proxy.scrollTo(currentIndex, anchor: .center)
                             }
                         } label: {
@@ -798,15 +799,16 @@ private struct InlineLyricsView: View {
             currentIndex = 0
             return
         }
-        currentIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= player.currentTime }) ?? 0)
+        let lyricTime = player.currentTime + settings.lyricOffset
+        currentIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
     }
 
     private func seek(to line: LyricLine, at index: Int, proxy: ScrollViewProxy) {
         guard let time = line.time else { return }
-        player.seek(to: time)
+        player.seek(to: max(0, time - settings.lyricOffset))
         currentIndex = index
         isFollowingPlayback = true
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(.easeOut(duration: 0.12)) {
             proxy.scrollTo(index, anchor: .center)
         }
     }

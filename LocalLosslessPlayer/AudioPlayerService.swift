@@ -182,7 +182,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private func startProgressUpdates() {
         guard progressTimer == nil else { return }
         progressTimer = Timer.scheduledTimer(
-            timeInterval: 0.25,
+            timeInterval: 1.0 / 30.0,
             target: self,
             selector: #selector(progressTimerFired),
             userInfo: nil,

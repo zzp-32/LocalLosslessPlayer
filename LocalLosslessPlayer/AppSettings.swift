@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
     @Published var lyricHighlightColor: LyricsColor { didSet { persist() } }
     @Published var lyricLineSpacing: Double { didSet { persist() } }
     @Published var lyricAlignment: LyricsAlignment { didSet { persist() } }
+    @Published var lyricOffset: Double { didSet { persist() } }
 
     enum Theme: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -50,6 +51,7 @@ final class AppSettings: ObservableObject {
         lyricHighlightColor = LyricsColor(rawValue: defaults.string(forKey: "lyrics.highlightColor") ?? "green") ?? .green
         lyricLineSpacing = defaults.object(forKey: "lyrics.lineSpacing") as? Double ?? 20
         lyricAlignment = LyricsAlignment(rawValue: defaults.string(forKey: "lyrics.alignment") ?? "left") ?? .left
+        lyricOffset = defaults.object(forKey: "lyrics.offset") as? Double ?? 0
     }
 
     private func persist() {
@@ -65,5 +67,6 @@ final class AppSettings: ObservableObject {
         defaults.set(lyricHighlightColor.rawValue, forKey: "lyrics.highlightColor")
         defaults.set(lyricLineSpacing, forKey: "lyrics.lineSpacing")
         defaults.set(lyricAlignment.rawValue, forKey: "lyrics.alignment")
+        defaults.set(lyricOffset, forKey: "lyrics.offset")
     }
 }
