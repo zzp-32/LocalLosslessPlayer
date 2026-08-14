@@ -83,10 +83,10 @@ final class AudioPlayerService: NSObject, ObservableObject {
         toneEqualizer.bands[0].gain = Float(max(0, min(12, bassBoost)))
         toneEqualizer.bands[1].gain = Float(max(0, min(12, trebleBoost)))
         balanceMixer.pan = Float(max(-1, min(1, balance / 100)))
-        balanceMixer.outputVolume = Float(max(0.05, min(2, pow(10, preamp / 20))))
+        balanceMixer.outputVolume = 1
         playbackRate = max(0.5, min(2, rate))
         timePitch.rate = Float(playbackRate)
-        equalizer.globalGain = loudness ? 2 : 0
+        equalizer.globalGain = Float(max(-12, min(12, preamp))) + (loudness ? 2 : 0)
         stereoSpace.wetDryMix = Float(max(0, min(100, stereoExpansion)) * 0.18)
         applyMonoOutputIfNeeded(monoAudio)
     }
