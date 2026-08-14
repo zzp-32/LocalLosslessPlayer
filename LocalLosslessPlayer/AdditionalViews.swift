@@ -769,8 +769,8 @@ private struct InlineLyricsView: View {
             .foregroundStyle(color)
             .opacity(lineOpacity(at: index))
             .multilineTextAlignment(settings.lyricAlignment.textAlignment)
+            .frame(width: width, alignment: settings.lyricAlignment.frameAlignment)
             .frame(
-                width: width,
                 minHeight: max(settings.lyricFontSize, settings.lyricHighlightFontSize) * 1.35,
                 alignment: settings.lyricAlignment.frameAlignment
             )
