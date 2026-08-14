@@ -293,7 +293,6 @@ struct LivePlaybackView: View {
 }
 
 struct NowPlayingView: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
     @State private var displayMode: DisplayMode = .song
@@ -327,6 +326,8 @@ struct NowPlayingView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .simultaneousGesture(modeSwipeGesture)
 
                 PlaybackControlsView()
                     .environmentObject(player)
@@ -342,37 +343,16 @@ struct NowPlayingView: View {
     }
 
     private var nowPlayingHeader: some View {
-        HStack(spacing: 0) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("收起正在播放")
-
+        HStack {
             Spacer()
-
             HStack(spacing: 14) {
                 modeButton("歌曲", mode: .song)
                 Text("|").foregroundStyle(Color.white.opacity(0.32))
                 modeButton("歌词", mode: .lyrics)
             }
-
             Spacer()
-
-            if let song = player.currentSong, let url = SourceReference.resolveURL(for: song) {
-                ShareLink(item: url) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("分享歌曲")
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-            }
         }
         .foregroundStyle(PlayerPalette.primary)
-        .padding(.horizontal, 16)
         .padding(.top, 4)
         .frame(height: 52)
     }
@@ -387,6 +367,20 @@ struct NowPlayingView: View {
                 .frame(minWidth: 42, minHeight: 40)
         }
         .accessibilityAddTraits(displayMode == mode ? .isSelected : [])
+    }
+
+    private var modeSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > 50, abs(horizontal) > abs(vertical) * 1.25 else { return }
+                if horizontal < 0 {
+                    displayMode = .lyrics
+                } else {
+                    displayMode = .song
+                }
+            }
     }
 }
 
@@ -505,18 +499,24 @@ private struct InlineLyricsView: View {
                                     .foregroundStyle(hasTimedLyrics && index == currentIndex ? PlayerPalette.green : PlayerPalette.primary)
                                     .opacity(lineOpacity(at: index))
                                     .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(width: max(0, geometry.size.width - 48), alignment: .leading)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .contentShape(Rectangle())
                                     .onTapGesture { seek(to: line, at: index, proxy: proxy) }
                                     .id(index)
                             }
                         }
                         .padding(.horizontal, 24)
+                        .frame(width: geometry.size.width, alignment: .leading)
                         .padding(.vertical, max(72, geometry.size.height * 0.42))
                     }
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 8)
-                            .onChanged { _ in isFollowingPlayback = false }
+                            .onChanged { value in
+                                guard abs(value.translation.height) > abs(value.translation.width),
+                                      abs(value.translation.height) > 6 else { return }
+                                isFollowingPlayback = false
+                            }
                     )
                     .onChange(of: currentIndex) { index in
                         guard isFollowingPlayback else { return }
@@ -672,19 +672,24 @@ private struct LyricsArtworkBackground: View {
     let artworkPath: String?
 
     var body: some View {
-        ZStack {
-            PlayerPalette.background
-            if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .scaleEffect(1.25)
-                    .blur(radius: 42)
-                    .opacity(0.48)
+        GeometryReader { geometry in
+            ZStack {
+                PlayerPalette.background
+                if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .scaleEffect(1.18)
+                        .blur(radius: 42)
+                        .opacity(0.48)
+                }
+                Color.black.opacity(0.58)
             }
-            Color.black.opacity(0.58)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
         .ignoresSafeArea()
-        .clipped()
     }
 }
