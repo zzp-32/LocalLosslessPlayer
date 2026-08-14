@@ -706,18 +706,7 @@ private struct InlineLyricsView: View {
                     ScrollView(showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: settings.lyricLineSpacing) {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                Text(line.text)
-                                    .font(.system(size: hasTimedLyrics && index == currentIndex ? settings.lyricHighlightFontSize : settings.lyricFontSize, weight: hasTimedLyrics && index == currentIndex ? .bold : .semibold))
-                                    .foregroundStyle(hasTimedLyrics && index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
-                                    .opacity(lineOpacity(at: index))
-                                    .multilineTextAlignment(settings.lyricAlignment.textAlignment)
-                                    .frame(
-                                        width: max(0, geometry.size.width - 48),
-                                        minHeight: max(settings.lyricFontSize, settings.lyricHighlightFontSize) * 1.35,
-                                        alignment: settings.lyricAlignment.frameAlignment
-                                    )
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .contentShape(Rectangle())
+                                lyricLineView(line, index: index, width: max(0, geometry.size.width - 48))
                                     .onTapGesture { seek(to: line, at: index, proxy: proxy) }
                                     .id(index)
                             }
@@ -767,6 +756,26 @@ private struct InlineLyricsView: View {
                 }
             }
         }
+    }
+
+    private func lyricLineView(_ line: LyricLine, index: Int, width: CGFloat) -> some View {
+        let isCurrent = hasTimedLyrics && index == currentIndex
+        let fontSize = isCurrent ? settings.lyricHighlightFontSize : settings.lyricFontSize
+        let fontWeight: Font.Weight = isCurrent ? .bold : .semibold
+        let color = isCurrent ? settings.lyricHighlightColor.color : settings.lyricColor.color
+
+        return Text(line.text)
+            .font(.system(size: fontSize, weight: fontWeight))
+            .foregroundStyle(color)
+            .opacity(lineOpacity(at: index))
+            .multilineTextAlignment(settings.lyricAlignment.textAlignment)
+            .frame(
+                width: width,
+                minHeight: max(settings.lyricFontSize, settings.lyricHighlightFontSize) * 1.35,
+                alignment: settings.lyricAlignment.frameAlignment
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .contentShape(Rectangle())
     }
 
     private func lineOpacity(at index: Int) -> Double {
