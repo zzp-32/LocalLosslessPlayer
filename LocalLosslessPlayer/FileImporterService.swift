@@ -188,8 +188,15 @@ final class FileImporterService {
             throw ImportAccessError.inaccessible(source.lastPathComponent)
         }
 
-        let fileBookmark = try SourceReference.bookmark(for: source)
         let relativePath = rootFolder.flatMap { SourceReference.relativePath(of: source, in: $0) }
+        let fileBookmark: Data?
+        do {
+            fileBookmark = try SourceReference.bookmark(for: source)
+        } catch {
+            guard rootBookmark != nil, relativePath != nil else { throw error }
+            fileBookmark = nil
+            print("[Import] Child bookmark unavailable; using root bookmark + relative path for \(source.lastPathComponent): \(error.localizedDescription)")
+        }
         let values = try readURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let checksum = fastIdentifier(
             source: source,
@@ -229,7 +236,7 @@ final class FileImporterService {
     private func updateReference(
         _ song: Song,
         source: URL,
-        fileBookmark: Data,
+        fileBookmark: Data?,
         rootBookmark: Data?,
         relativePath: String?,
         checksum: String
