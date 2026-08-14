@@ -1,4 +1,6 @@
+import CoreData
 import SwiftUI
+import UIKit
 
 struct FunctionMenuView: View {
     @Environment(\.dismiss) private var dismiss
@@ -214,117 +216,57 @@ struct AudioInfoView: View {
     private func infoRow(_ title: String, _ value: String) -> some View { HStack(alignment: .top) { Text(title).foregroundStyle(PlayerPalette.secondary).frame(width: 55, alignment: .leading); Text(value).foregroundStyle(PlayerPalette.primary).lineLimit(2); Spacer() }.padding(.top, 15) }
 }
 
-struct LyricsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var player: PlayerViewModel
-    @State private var lines: [LyricLine] = []
-    @State private var currentIndex = 0
-
-    var body: some View {
-        ZStack {
-            PlayerPalette.background.ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 40, height: 40) }; Spacer(); Text("歌词").font(.headline).foregroundStyle(PlayerPalette.primary); Spacer(); Color.clear.frame(width: 40, height: 40) }.foregroundStyle(PlayerPalette.primary)
-                if let song = player.currentSong {
-                    VStack(spacing: 14) { Spacer(); Image(systemName: "text.quote").font(.system(size: 34)).foregroundStyle(PlayerPalette.green); Text("暂未找到歌词").font(.title3.weight(.semibold)).foregroundStyle(PlayerPalette.primary); Text(song.title).font(.subheadline).foregroundStyle(PlayerPalette.secondary); Text("支持内嵌歌词和同名 .lrc 文件").font(.caption).foregroundStyle(PlayerPalette.secondary); Spacer() }.multilineTextAlignment(.center)
-                } else { Spacer(); Text("开始播放后显示歌词").foregroundStyle(PlayerPalette.secondary); Spacer() }
-            }.padding(.horizontal, 20)
-        }
-        .preferredColorScheme(.dark)
-        .onAppear { loadLyrics() }
-        .onChange(of: player.currentTime) { _ in updateCurrentLine() }
-        .onChange(of: player.currentSong?.objectID) { _ in loadLyrics() }
-    }
-
-    private func loadLyrics() {
-        guard let song = player.currentSong else { lines = []; return }
-        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? SourceReference.sidecarURL(for: song, extension: "lrc")
-        guard let url else { lines = []; return }
-        lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
-        currentIndex = 0
-    }
-
-    private func updateCurrentLine() {
-        guard !lines.isEmpty else { return }
-        currentIndex = max(0, lines.lastIndex(where: { $0.time <= player.currentTime }) ?? 0)
-    }
+struct LyricLine {
+    let time: Double?
+    let text: String
 }
-
-struct LyricLine { let time: Double; let text: String }
 
 enum LyricParser {
     static func parse(_ content: String) -> [LyricLine] {
-        content.split(whereSeparator: \.isNewline).compactMap { raw in
-            let line = String(raw)
-            guard let close = line.firstIndex(of: "]"), line.first == "[" else { return nil }
-            let stamp = String(line[line.index(after: line.startIndex)..<close])
-            let parts = stamp.split(separator: ":")
-            guard parts.count == 2, let minute = Double(parts[0]), let seconds = Double(parts[1]) else { return nil }
-            let text = String(line[line.index(after: close)...]).trimmingCharacters(in: .whitespaces)
-            return LyricLine(time: minute * 60 + seconds, text: text)
-        }.sorted { $0.time < $1.time }
-    }
-}
+        let rawLines = content.components(separatedBy: .newlines)
+        var timedLines: [LyricLine] = []
 
-struct RealLyricsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var player: PlayerViewModel
-    @State private var lines: [LyricLine] = []
-    @State private var currentIndex = 0
+        for rawLine in rawLines {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            let range = NSRange(line.startIndex..<line.endIndex, in: line)
+            let matches = timestampExpression.matches(in: line, range: range)
+            guard !matches.isEmpty else { continue }
 
-    var body: some View {
-        ZStack {
-            PlayerPalette.background.ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack {
-                    Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 40, height: 40) }
-                    Spacer(); Text("歌词").font(.headline); Spacer(); Color.clear.frame(width: 40, height: 40)
-                }.foregroundStyle(PlayerPalette.primary)
-                if lines.isEmpty {
-                    Spacer()
-                    VStack(spacing: 12) {
-                        Image(systemName: "text.quote").font(.system(size: 34)).foregroundStyle(PlayerPalette.green)
-                        Text("暂未找到歌词").font(.title3.weight(.semibold)).foregroundStyle(PlayerPalette.primary)
-                        Text("请将同名 .lrc 文件和歌曲一起导入").font(.caption).foregroundStyle(PlayerPalette.secondary)
-                    }.multilineTextAlignment(.center)
-                    Spacer()
-                } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(spacing: 18) {
-                                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                    Text(line.text)
-                                        .font(index == currentIndex ? .title3.weight(.bold) : .body)
-                                        .foregroundStyle(index == currentIndex ? PlayerPalette.green : PlayerPalette.secondary)
-                                        .multilineTextAlignment(.center)
-                                        .frame(maxWidth: .infinity)
-                                        .id(index)
-                                }
-                            }.padding(.vertical, 120)
-                        }
-                        .onChange(of: currentIndex) { index in withAnimation { proxy.scrollTo(index, anchor: .center) } }
-                    }
-                }
-            }.padding(.horizontal, 20)
+            let lastMatch = matches[matches.count - 1]
+            guard let textRange = Range(NSRange(location: NSMaxRange(lastMatch.range), length: range.length - NSMaxRange(lastMatch.range)), in: line) else { continue }
+            let text = String(line[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+
+            for match in matches {
+                guard match.numberOfRanges == 3,
+                      let minuteRange = Range(match.range(at: 1), in: line),
+                      let secondRange = Range(match.range(at: 2), in: line),
+                      let minute = Double(line[minuteRange]),
+                      let second = Double(line[secondRange]) else { continue }
+                timedLines.append(LyricLine(time: minute * 60 + second, text: text))
+            }
         }
-        .preferredColorScheme(.dark)
-        .onAppear { reload() }
-        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in reload() }
-        .onChange(of: player.currentTime) { _ in sync() }
-        .onChange(of: player.currentSong?.objectID) { _ in reload() }
+
+        if !timedLines.isEmpty {
+            return timedLines.sorted { ($0.time ?? 0) < ($1.time ?? 0) }
+        }
+
+        return rawLines.compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !isMetadataLine(line) else { return nil }
+            return LyricLine(time: nil, text: line)
+        }
     }
 
-    private func reload() {
-        guard let song = player.currentSong else { lines = []; return }
-        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? SourceReference.sidecarURL(for: song, extension: "lrc")
-        guard let url else { lines = []; return }
-        lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
-        currentIndex = 0
-    }
+    private static let timestampExpression = try! NSRegularExpression(
+        pattern: #"\[(\d{1,3}):(\d{1,2}(?:\.\d{1,3})?)\]"#
+    )
 
-    private func sync() {
-        guard !lines.isEmpty else { return }
-        currentIndex = max(0, lines.lastIndex(where: { $0.time <= player.currentTime }) ?? 0)
+    private static func isMetadataLine(_ line: String) -> Bool {
+        guard line.first == "[", line.last == "]", let colon = line.firstIndex(of: ":") else { return false }
+        let key = line[line.index(after: line.startIndex)..<colon].lowercased()
+        return ["ar", "ti", "al", "by", "offset", "re", "ve"].contains(key)
     }
 }
 
@@ -354,57 +296,395 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
-    @State private var showingLyrics = false
+    @State private var displayMode: DisplayMode = .song
+    @State private var metadataRevision = UUID()
+
+    private enum DisplayMode {
+        case song
+        case lyrics
+    }
 
     var body: some View {
         ZStack {
             PlayerPalette.background.ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack {
-                    Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 40, height: 40) }
-                    Spacer()
-                    Button { showingLyrics = true } label: { Image(systemName: "text.quote").frame(width: 40, height: 40) }.accessibilityLabel("打开歌词")
-                }
-                .foregroundStyle(PlayerPalette.primary)
-                .padding(.top, 4)
-
-                Spacer(minLength: 16)
-                ArtworkTile(title: player.currentSong?.title ?? "", size: min(UIScreen.main.bounds.width - 48, 340), large: true, artworkPath: player.currentSong?.artworkPath)
-                Spacer(minLength: 22)
-
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(player.currentSong?.title ?? "未播放").font(.title3.weight(.bold)).foregroundStyle(PlayerPalette.primary).lineLimit(1)
-                        Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家").font(.subheadline).foregroundStyle(PlayerPalette.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                }
-                .padding(.bottom, 18)
-
-                Slider(value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }), in: 0...max(player.duration, 1)).tint(PlayerPalette.green)
-                HStack { Text(timeText(player.currentTime)); Spacer(); Text("-\(timeText(max(0, player.duration - player.currentTime)))") }.font(.caption2.monospacedDigit()).foregroundStyle(PlayerPalette.secondary)
-
-                HStack {
-                    Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").foregroundStyle(player.isShuffled ? PlayerPalette.green : PlayerPalette.secondary).frame(width: 36, height: 36) }
-                    Spacer()
-                    Button { player.previous() } label: { Image(systemName: "backward.fill").font(.title3).foregroundStyle(PlayerPalette.primary).frame(width: 46, height: 46) }
-                    Spacer()
-                    Button { player.toggle() } label: { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title2.bold()).foregroundStyle(PlayerPalette.background).frame(width: 68, height: 68).background(PlayerPalette.green).clipShape(Circle()) }
-                    Spacer()
-                    Button { player.next() } label: { Image(systemName: "forward.fill").font(.title3).foregroundStyle(PlayerPalette.primary).frame(width: 46, height: 46) }
-                    Spacer()
-                    Button { player.cycleRepeatMode() } label: { Image(systemName: player.repeatMode.icon).foregroundStyle(player.repeatMode == .off ? PlayerPalette.secondary : PlayerPalette.green).frame(width: 36, height: 36) }
-                }
-                .padding(.top, 22)
-                Spacer(minLength: 18)
+            if displayMode == .lyrics {
+                LyricsArtworkBackground(artworkPath: player.currentSong?.artworkPath)
+                    .id(metadataRevision)
+                    .transition(.opacity)
             }
-            .padding(.horizontal, 24)
+            VStack(spacing: 0) {
+                nowPlayingHeader
+
+                Group {
+                    if displayMode == .song {
+                        SongDisplayView()
+                            .environmentObject(player)
+                            .transition(.opacity)
+                    } else {
+                        InlineLyricsView()
+                            .environmentObject(player)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                PlaybackControlsView()
+                    .environmentObject(player)
+            }
         }
         .preferredColorScheme(.dark)
         .onAppear { player.apply(settings: settings) }
-        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-            if value.translation.width < -50 { showingLyrics = true }
-        })
-        .sheet(isPresented: $showingLyrics) { RealLyricsView().environmentObject(player) }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
+            guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
+            metadataRevision = UUID()
+        }
+        .animation(.easeInOut(duration: 0.2), value: displayMode)
+    }
+
+    private var nowPlayingHeader: some View {
+        HStack(spacing: 0) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("收起正在播放")
+
+            Spacer()
+
+            HStack(spacing: 14) {
+                modeButton("歌曲", mode: .song)
+                Text("|").foregroundStyle(Color.white.opacity(0.32))
+                modeButton("歌词", mode: .lyrics)
+            }
+
+            Spacer()
+
+            if let song = player.currentSong, let url = SourceReference.resolveURL(for: song) {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("分享歌曲")
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+            }
+        }
+        .foregroundStyle(PlayerPalette.primary)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .frame(height: 52)
+    }
+
+    private func modeButton(_ title: String, mode: DisplayMode) -> some View {
+        Button {
+            displayMode = mode
+        } label: {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(displayMode == mode ? PlayerPalette.primary : PlayerPalette.secondary)
+                .frame(minWidth: 42, minHeight: 40)
+        }
+        .accessibilityAddTraits(displayMode == mode ? .isSelected : [])
+    }
+}
+
+private struct SongDisplayView: View {
+    @EnvironmentObject private var player: PlayerViewModel
+
+    var body: some View {
+        GeometryReader { proxy in
+            let artworkSize = min(proxy.size.width - 48, min(340, max(190, proxy.size.height - 98)))
+            VStack(spacing: 0) {
+                Spacer(minLength: 8)
+                ArtworkTile(
+                    title: player.currentSong?.title ?? "",
+                    size: artworkSize,
+                    large: true,
+                    artworkPath: player.currentSong?.artworkPath
+                )
+                Spacer(minLength: 14)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(player.currentSong?.title ?? "未播放")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(PlayerPalette.primary)
+                        .lineLimit(1)
+                    Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家")
+                        .font(.subheadline)
+                        .foregroundStyle(PlayerPalette.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+}
+
+private struct InlineLyricsView: View {
+    @EnvironmentObject private var player: PlayerViewModel
+    @State private var lines: [LyricLine] = []
+    @State private var currentIndex = 0
+    @State private var isFollowingPlayback = true
+    @State private var isMatching = false
+
+    private var hasTimedLyrics: Bool {
+        lines.contains { $0.time != nil }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(player.currentSong?.title ?? "未播放")
+                    .font(.headline)
+                    .foregroundStyle(PlayerPalette.primary)
+                    .lineLimit(1)
+                Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家")
+                    .font(.subheadline)
+                    .foregroundStyle(PlayerPalette.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+
+            if lines.isEmpty {
+                noLyricsView
+            } else {
+                lyricsScroller
+            }
+        }
+        .onAppear { reloadLyrics() }
+        .onChange(of: player.currentTime) { _ in syncCurrentLine() }
+        .onChange(of: player.currentSong?.objectID) { _ in
+            isFollowingPlayback = true
+            reloadLyrics()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
+            guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
+            reloadLyrics()
+        }
+    }
+
+    private var noLyricsView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "text.quote")
+                .font(.system(size: 34))
+                .foregroundStyle(PlayerPalette.green)
+            Text("暂无歌词")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(PlayerPalette.primary)
+            Button {
+                rematchLyrics()
+            } label: {
+                if isMatching {
+                    ProgressView().tint(PlayerPalette.green)
+                } else {
+                    Label("重新匹配歌词", systemImage: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.bordered)
+            .tint(PlayerPalette.green)
+            .disabled(isMatching)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var lyricsScroller: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 20) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                Text(line.text)
+                                    .font(.system(size: hasTimedLyrics && index == currentIndex ? 25 : 19, weight: hasTimedLyrics && index == currentIndex ? .bold : .semibold))
+                                    .foregroundStyle(hasTimedLyrics && index == currentIndex ? PlayerPalette.green : PlayerPalette.primary)
+                                    .opacity(lineOpacity(at: index))
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { seek(to: line, at: index, proxy: proxy) }
+                                    .id(index)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, max(72, geometry.size.height * 0.42))
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { _ in isFollowingPlayback = false }
+                    )
+                    .onChange(of: currentIndex) { index in
+                        guard isFollowingPlayback else { return }
+                        withAnimation(.easeInOut(duration: 0.32)) {
+                            proxy.scrollTo(index, anchor: .center)
+                        }
+                    }
+                    .onChange(of: lines.count) { _ in
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(currentIndex, anchor: .center)
+                        }
+                    }
+
+                    if !isFollowingPlayback {
+                        Button {
+                            isFollowingPlayback = true
+                            syncCurrentLine()
+                            withAnimation(.easeInOut(duration: 0.32)) {
+                                proxy.scrollTo(currentIndex, anchor: .center)
+                            }
+                        } label: {
+                            Label("回到正在播放", systemImage: "location.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .frame(height: 36)
+                                .background(PlayerPalette.surface.opacity(0.92))
+                                .cornerRadius(7)
+                        }
+                        .foregroundStyle(PlayerPalette.primary)
+                        .padding(16)
+                    }
+                }
+            }
+        }
+    }
+
+    private func lineOpacity(at index: Int) -> Double {
+        guard hasTimedLyrics else { return 0.76 }
+        if index == currentIndex { return 1 }
+        return abs(index - currentIndex) <= 2 ? 0.62 : 0.36
+    }
+
+    private func reloadLyrics() {
+        guard let song = player.currentSong else {
+            lines = []
+            currentIndex = 0
+            return
+        }
+        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) }
+            ?? SourceReference.sidecarURL(for: song, extension: "lrc")
+        guard let url,
+              let content = try? String(contentsOf: url, encoding: .utf8) else {
+            lines = []
+            currentIndex = 0
+            return
+        }
+        lines = LyricParser.parse(content)
+        syncCurrentLine()
+    }
+
+    private func syncCurrentLine() {
+        guard !lines.isEmpty, hasTimedLyrics else {
+            currentIndex = 0
+            return
+        }
+        currentIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= player.currentTime }) ?? 0)
+    }
+
+    private func seek(to line: LyricLine, at index: Int, proxy: ScrollViewProxy) {
+        guard let time = line.time else { return }
+        player.seek(to: time)
+        currentIndex = index
+        isFollowingPlayback = true
+        withAnimation(.easeInOut(duration: 0.25)) {
+            proxy.scrollTo(index, anchor: .center)
+        }
+    }
+
+    private func rematchLyrics() {
+        guard let song = player.currentSong else { return }
+        isMatching = true
+        Task {
+            await MetadataMatcher.shared.rematchLyrics(song: song)
+            reloadLyrics()
+            isMatching = false
+        }
+    }
+}
+
+private struct PlaybackControlsView: View {
+    @EnvironmentObject private var player: PlayerViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Slider(
+                value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }),
+                in: 0...max(player.duration, 1)
+            )
+            .tint(PlayerPalette.green)
+
+            HStack {
+                Text(timeText(player.currentTime))
+                Spacer()
+                Text(timeText(player.duration))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(PlayerPalette.secondary)
+
+            HStack {
+                Button { player.toggleShuffle() } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(player.isShuffled ? PlayerPalette.green : PlayerPalette.secondary)
+                        .frame(width: 36, height: 36)
+                }
+                Spacer()
+                Button { player.previous() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.title3)
+                        .foregroundStyle(PlayerPalette.primary)
+                        .frame(width: 46, height: 46)
+                }
+                Spacer()
+                Button { player.toggle() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title2.bold())
+                        .foregroundStyle(PlayerPalette.background)
+                        .frame(width: 64, height: 64)
+                        .background(PlayerPalette.green)
+                        .clipShape(Circle())
+                }
+                Spacer()
+                Button { player.next() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.title3)
+                        .foregroundStyle(PlayerPalette.primary)
+                        .frame(width: 46, height: 46)
+                }
+                Spacer()
+                Button { player.cycleRepeatMode() } label: {
+                    Image(systemName: player.repeatMode.icon)
+                        .foregroundStyle(player.repeatMode == .off ? PlayerPalette.secondary : PlayerPalette.green)
+                        .frame(width: 36, height: 36)
+                }
+            }
+            .padding(.top, 14)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 10)
+    }
+}
+
+private struct LyricsArtworkBackground: View {
+    let artworkPath: String?
+
+    var body: some View {
+        ZStack {
+            PlayerPalette.background
+            if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .scaleEffect(1.25)
+                    .blur(radius: 42)
+                    .opacity(0.48)
+            }
+            Color.black.opacity(0.58)
+        }
+        .ignoresSafeArea()
+        .clipped()
     }
 }

@@ -24,6 +24,35 @@ final class MetadataMatcher {
         NotificationCenter.default.post(name: .songMetadataUpdated, object: song.objectID)
     }
 
+    func rematchLyrics(song: Song) async {
+        _ = LocalMetadataService.apply(to: song)
+        if let path = song.lyricsPath,
+           let content = try? String(contentsOfFile: path, encoding: .utf8),
+           !LyricParser.parse(content).isEmpty {
+            NotificationCenter.default.post(name: .songMetadataUpdated, object: song.objectID)
+            return
+        }
+        let parts = Self.splitTitle(song.title)
+        let artist = song.artist.nilIfEmpty ?? parts.artist
+        guard !parts.title.isEmpty,
+              let lyrics = await fetchLyrics(title: parts.title, artist: artist, album: song.album) else {
+            NotificationCenter.default.post(name: .songMetadataUpdated, object: song.objectID)
+            return
+        }
+
+        let target = StorageConfiguration.lyricsRootURL
+            .appendingPathComponent(song.checksum)
+            .appendingPathExtension("lrc")
+        do {
+            try lyrics.write(to: target, atomically: true, encoding: .utf8)
+            song.lyricsPath = target.path
+            try song.managedObjectContext?.save()
+        } catch {
+            print("[Metadata] Lyrics rematch save failed: \(error.localizedDescription)")
+        }
+        NotificationCenter.default.post(name: .songMetadataUpdated, object: song.objectID)
+    }
+
     private func fetchArtwork(title: String, artist: String?) async -> Data? {
         var components = URLComponents(string: "https://itunes.apple.com/search")
         components?.queryItems = [
