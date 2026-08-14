@@ -620,6 +620,8 @@ private struct InlineLyricsView: View {
     @State private var currentIndex = 0
     @State private var isFollowingPlayback = true
     @State private var isMatching = false
+    @State private var scrollResetID = 0
+    @State private var isScrollReady = false
 
     private var hasTimedLyrics: Bool {
         lines.contains { $0.time != nil }
@@ -665,11 +667,14 @@ private struct InlineLyricsView: View {
         .onChange(of: player.currentTime) { _ in syncCurrentLine() }
         .onChange(of: player.currentSong?.objectID) { _ in
             isFollowingPlayback = true
+            isScrollReady = false
             reloadLyrics()
+            scrollResetID &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
             guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
             reloadLyrics()
+            scrollResetID &+= 1
         }
     }
 
@@ -724,15 +729,21 @@ private struct InlineLyricsView: View {
                             }
                     )
                     .onChange(of: currentIndex) { index in
-                        guard isFollowingPlayback else { return }
+                        guard isFollowingPlayback, isScrollReady else { return }
                         withAnimation(.easeOut(duration: 0.12)) {
                             proxy.scrollTo(index, anchor: .center)
                         }
                     }
+                    .onAppear {
+                        isScrollReady = false
+                        positionAtCurrentLine(proxy, animated: false)
+                    }
+                    .onChange(of: scrollResetID) { _ in
+                        isScrollReady = false
+                        positionAtCurrentLine(proxy, animated: false)
+                    }
                     .onChange(of: lines.count) { _ in
-                        DispatchQueue.main.async {
-                            proxy.scrollTo(currentIndex, anchor: .center)
-                        }
+                        positionAtCurrentLine(proxy, animated: false)
                     }
 
                     if !isFollowingPlayback {
@@ -803,14 +814,30 @@ private struct InlineLyricsView: View {
     }
 
     private func syncCurrentLine() {
-        guard !lines.isEmpty, hasTimedLyrics else {
-            currentIndex = 0
-            return
-        }
-        let lyricTime = player.currentTime + settings.lyricOffset
-        let nextIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
+        let nextIndex = currentLineIndex()
         guard nextIndex != currentIndex else { return }
         currentIndex = nextIndex
+    }
+
+    private func currentLineIndex() -> Int {
+        guard !lines.isEmpty, hasTimedLyrics else { return 0 }
+        let lyricTime = player.currentTime + settings.lyricOffset
+        return max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
+    }
+
+    private func positionAtCurrentLine(_ proxy: ScrollViewProxy, animated: Bool) {
+        let target = currentLineIndex()
+        currentIndex = target
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+            } else {
+                proxy.scrollTo(target, anchor: .center)
+            }
+            isScrollReady = true
+        }
     }
 
     private func seek(to line: LyricLine, at index: Int, proxy: ScrollViewProxy) {
