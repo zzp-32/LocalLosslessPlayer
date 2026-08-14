@@ -168,5 +168,6 @@ final class FileImporterService {
 }
 
 private func metadataValue(_ items: [AVMetadataItem], key: AVMetadataKey) -> String? {
-    items.first { $0.commonKey == key }?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    guard let value = items.first(where: { $0.commonKey == key })?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+    return value
 }
