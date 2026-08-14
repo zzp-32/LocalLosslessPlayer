@@ -4,6 +4,7 @@ import Foundation
 final class MetadataMatcher {
     static let shared = MetadataMatcher()
     func match(song: Song) async {
+        _ = LocalMetadataService.apply(to: song)
         let parts = Self.splitTitle(song.title)
         let artist = song.artist.nilIfEmpty ?? parts.artist
         let title = parts.title

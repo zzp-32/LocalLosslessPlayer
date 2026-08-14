@@ -308,6 +308,7 @@ struct RealLyricsView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in reload() }
         .onChange(of: player.currentTime) { _ in sync() }
         .onChange(of: player.currentSong?.objectID) { _ in reload() }
     }
@@ -399,6 +400,9 @@ struct NowPlayingView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { player.apply(settings: settings) }
+        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+            if value.translation.width < -50 { showingLyrics = true }
+        })
         .sheet(isPresented: $showingLyrics) { RealLyricsView().environmentObject(player) }
     }
 }

@@ -141,6 +141,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func loadAndPlay(_ song: Song) {
+        _ = LocalMetadataService.apply(to: song)
         currentSong = song
         Task { await MetadataMatcher.shared.match(song: song) }
         do {
