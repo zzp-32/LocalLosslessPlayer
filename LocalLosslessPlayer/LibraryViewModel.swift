@@ -9,6 +9,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var isImporting = false
     @Published var importProgress = ""
     private let context: NSManagedObjectContext
+    private var isScanning = false
 
     init(context: NSManagedObjectContext) {
         self.context = context
@@ -24,14 +25,21 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func scanMusicFolder(reportStatus: Bool = true) async {
-        guard !isImporting else { return }
+        guard !isScanning else { return }
+        isScanning = true
+        defer { isScanning = false }
+
         let folder = StorageConfiguration.mediaRootURL
         print("[MusicFolder] Scan started = \(folder.path)")
-        isImporting = true
-        importProgress = "正在扫描 Music 文件夹…"
+        if reportStatus {
+            isImporting = true
+            importProgress = "正在扫描 Music 文件夹…"
+        }
         let scan = await FileImporterService.audioFiles(in: folder)
-        isImporting = false
-        importProgress = ""
+        if reportStatus {
+            isImporting = false
+            importProgress = ""
+        }
         print("[MusicFolder] Music files found = \(scan.files.count)")
 
         guard !scan.files.isEmpty else {
@@ -53,18 +61,24 @@ final class LibraryViewModel: ObservableObject {
         rootFolder: URL,
         reportStatus: Bool
     ) async {
-        guard !urls.isEmpty, !isImporting else { return }
-        isImporting = true
+        guard !urls.isEmpty else { return }
+        if reportStatus {
+            isImporting = true
+        }
         let result = await FileImporterService(context: context).importFiles(
             urls,
             rootFolder: rootFolder,
             rootBookmark: nil
         ) { [weak self] name, current, total in
-            self?.importProgress = "\(current)/\(total)  \(name)"
+            if reportStatus {
+                self?.importProgress = "\(current)/\(total)  \(name)"
+            }
         }
         refresh()
-        isImporting = false
-        importProgress = ""
+        if reportStatus {
+            isImporting = false
+            importProgress = ""
+        }
         guard reportStatus else { return }
         if result.importedCount == 0, !result.failures.isEmpty {
             errorMessage = result.message
