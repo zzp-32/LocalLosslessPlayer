@@ -156,7 +156,7 @@ struct PlaybackSpeedView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var player: PlayerViewModel
-    private let speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    private let speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
     var body: some View {
         NavigationStack {
@@ -171,6 +171,192 @@ struct PlaybackSpeedView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+private extension AppSettings.LyricsColor {
+    var title: String {
+        switch self {
+        case .white: return "白色"
+        case .green: return "绿色"
+        case .cyan: return "青色"
+        case .gold: return "金色"
+        case .coral: return "珊瑚色"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .white: return .white
+        case .green: return PlayerPalette.green
+        case .cyan: return PlayerPalette.cyan
+        case .gold: return PlayerPalette.gold
+        case .coral: return PlayerPalette.coral
+        }
+    }
+}
+
+private extension AppSettings.LyricsAlignment {
+    var title: String {
+        switch self {
+        case .left: return "左对齐"
+        case .center: return "居中对齐"
+        case .right: return "右对齐"
+        }
+    }
+
+    var textAlignment: TextAlignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+
+    var frameAlignment: Alignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+}
+
+private enum MoreSettingsPage: String, Identifiable {
+    case eq, speed, lyrics
+    var id: String { rawValue }
+}
+
+private struct MoreSettingsSheet: View {
+    @EnvironmentObject private var player: PlayerViewModel
+    @EnvironmentObject private var settings: AppSettings
+    @State private var page: MoreSettingsPage?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                settingsRow("slider.horizontal.3", "音效") { page = .eq }
+                settingsRow("gauge.with.dots.needle.bottom.50percent", "播放速度") { page = .speed }
+                settingsRow("text.quote", "歌词设置") { page = .lyrics }
+            }
+            .scrollContentBackground(.hidden)
+            .background(PlayerPalette.background)
+            .navigationTitle("更多设置")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(.dark)
+        .sheet(item: $page) { selected in
+            Group {
+                switch selected {
+                case .eq: EQView()
+                case .speed: PlaybackSpeedView()
+                case .lyrics: LyricsSettingsView()
+                }
+            }
+            .environmentObject(player)
+            .environmentObject(settings)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func settingsRow(_ icon: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .foregroundStyle(PlayerPalette.green)
+                    .frame(width: 26)
+                Text(title).foregroundStyle(PlayerPalette.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(PlayerPalette.secondary)
+            }
+            .frame(height: 52)
+        }
+        .listRowBackground(PlayerPalette.surface)
+        .listRowSeparatorTint(PlayerPalette.line)
+    }
+}
+
+private struct LyricsSettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("歌词基础样式") {
+                    lyricSlider(title: "普通歌词大小", value: $settings.lyricFontSize, range: 14...32)
+                    lyricSlider(title: "高亮歌词大小", value: $settings.lyricHighlightFontSize, range: 16...38)
+                    Text("当前歌词预览")
+                        .font(.system(size: settings.lyricHighlightFontSize, weight: .bold))
+                        .foregroundStyle(settings.lyricHighlightColor.color)
+                        .frame(maxWidth: .infinity, alignment: settings.lyricAlignment.frameAlignment)
+                        .padding(.vertical, 8)
+                }
+
+                Section("歌词颜色") {
+                    colorRow(title: "普通歌词颜色", selection: $settings.lyricColor)
+                    colorRow(title: "高亮歌词颜色", selection: $settings.lyricHighlightColor)
+                }
+
+                Section("行间距设置") {
+                    lyricSlider(title: "歌词行间距", value: $settings.lyricLineSpacing, range: 8...36)
+                }
+
+                Section("对齐方式") {
+                    Picker("整体内容对齐", selection: $settings.lyricAlignment) {
+                        ForEach(AppSettings.LyricsAlignment.allCases) { alignment in
+                            Text(alignment.title).tag(alignment)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(PlayerPalette.background)
+            .navigationTitle("歌词设置")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private func lyricSlider(title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(title).foregroundStyle(PlayerPalette.primary)
+                Spacer()
+                Text(String(format: "%.0f", value.wrappedValue))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(PlayerPalette.secondary)
+            }
+            Slider(value: value, in: range, step: 1).tint(PlayerPalette.green)
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func colorRow(title: String, selection: Binding<AppSettings.LyricsColor>) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).foregroundStyle(PlayerPalette.primary)
+            HStack(spacing: 18) {
+                ForEach(AppSettings.LyricsColor.allCases) { color in
+                    Button { selection.wrappedValue = color } label: {
+                        Circle()
+                            .fill(color.color)
+                            .frame(width: 28, height: 28)
+                            .overlay {
+                                if selection.wrappedValue == color {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(color == .white ? .black : .white)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(color.title)
+                }
+            }
+        }
+        .padding(.vertical, 5)
     }
 }
 
@@ -419,10 +605,12 @@ private struct SongDisplayView: View {
 
 private struct InlineLyricsView: View {
     @EnvironmentObject private var player: PlayerViewModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var lines: [LyricLine] = []
     @State private var currentIndex = 0
     @State private var isFollowingPlayback = true
     @State private var isMatching = false
+    @State private var showingMoreSettings = false
 
     private var hasTimedLyrics: Bool {
         lines.contains { $0.time != nil }
@@ -459,6 +647,34 @@ private struct InlineLyricsView: View {
             guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
             reloadLyrics()
         }
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 20) {
+                Button { rematchLyrics() } label: {
+                    if isMatching {
+                        ProgressView().tint(PlayerPalette.primary)
+                    } else {
+                        Image(systemName: "magnifyingglass.circle")
+                    }
+                }
+                .accessibilityLabel("重新匹配歌词")
+                .disabled(isMatching)
+
+                Button { showingMoreSettings = true } label: {
+                    Image(systemName: "ellipsis")
+                        .rotationEffect(.degrees(90))
+                }
+                .accessibilityLabel("更多设置")
+            }
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(PlayerPalette.primary)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 4)
+        }
+        .sheet(isPresented: $showingMoreSettings) {
+            MoreSettingsSheet()
+                .environmentObject(player)
+                .environmentObject(settings)
+        }
     }
 
     private var noLyricsView: some View {
@@ -492,14 +708,14 @@ private struct InlineLyricsView: View {
             ScrollViewReader { proxy in
                 ZStack(alignment: .bottomTrailing) {
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 20) {
+                        LazyVStack(alignment: .leading, spacing: settings.lyricLineSpacing) {
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                                 Text(line.text)
-                                    .font(.system(size: hasTimedLyrics && index == currentIndex ? 25 : 19, weight: hasTimedLyrics && index == currentIndex ? .bold : .semibold))
-                                    .foregroundStyle(hasTimedLyrics && index == currentIndex ? PlayerPalette.green : PlayerPalette.primary)
+                                    .font(.system(size: hasTimedLyrics && index == currentIndex ? settings.lyricHighlightFontSize : settings.lyricFontSize, weight: hasTimedLyrics && index == currentIndex ? .bold : .semibold))
+                                    .foregroundStyle(hasTimedLyrics && index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
                                     .opacity(lineOpacity(at: index))
-                                    .multilineTextAlignment(.leading)
-                                    .frame(width: max(0, geometry.size.width - 48), alignment: .leading)
+                                    .multilineTextAlignment(settings.lyricAlignment.textAlignment)
+                                    .frame(width: max(0, geometry.size.width - 48), alignment: settings.lyricAlignment.frameAlignment)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .contentShape(Rectangle())
                                     .onTapGesture { seek(to: line, at: index, proxy: proxy) }
