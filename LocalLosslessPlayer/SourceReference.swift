@@ -1,6 +1,5 @@
 import Foundation
 
-@MainActor
 enum SourceReference {
     enum ReferenceError: LocalizedError {
         case unavailable
@@ -28,9 +27,6 @@ enum SourceReference {
     static func resolveURL(for song: Song) -> URL? {
         if let bookmark = song.sourceBookmark,
            let resolved = resolveBookmark(bookmark) {
-            if resolved.stale, let renewed = try? self.bookmark(for: resolved.url) {
-                song.sourceBookmark = renewed
-            }
             return resolved.url
         }
 
