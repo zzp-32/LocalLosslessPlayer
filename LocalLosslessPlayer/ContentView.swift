@@ -54,20 +54,6 @@ struct ContentView: View {
                 .environmentObject(settings)
                 .environmentObject(library)
         }
-        .sheet(isPresented: $showingSearch) {
-            NavigationStack {
-                SearchView(library: library)
-                    .navigationTitle("搜索")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("完成") { showingSearch = false }
-                                .foregroundStyle(PlayerPalette.green)
-                        }
-                    }
-            }
-            .preferredColorScheme(.dark)
-        }
         .alert("导入失败", isPresented: messageBinding(for: $library.errorMessage)) {
             Button("好") { library.errorMessage = nil }
         } message: { Text(library.errorMessage ?? "未知错误") }
@@ -101,6 +87,13 @@ struct ContentView: View {
             }
             .toolbarBackground(PlayerPalette.background, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationDestination(isPresented: $showingSearch) {
+                SearchView(library: library)
+                    .navigationTitle("搜索")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarBackground(PlayerPalette.background, for: .navigationBar)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+            }
         }
         .tabItem { Image(systemName: "rectangle.stack.fill") }
         .accessibilityLabel("媒体库")
