@@ -4,9 +4,12 @@ import Foundation
 @MainActor
 enum LocalMetadataService {
     static func apply(to song: Song) -> Bool {
-        guard song.fileName.lowercased().hasSuffix(".flac") else { return false }
+        guard song.fileName.lowercased().hasSuffix(".flac"),
+              let url = SourceReference.resolveURL(for: song) else { return false }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            let metadata = try FLACMetadataReader.read(from: URL(fileURLWithPath: song.filePath))
+            let metadata = try FLACMetadataReader.read(from: url)
             song.title = metadata.title.nilIfEmpty ?? song.title
             song.artist = metadata.artist.nilIfEmpty ?? song.artist
             song.album = metadata.album.nilIfEmpty ?? song.album

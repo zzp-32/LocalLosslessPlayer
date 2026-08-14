@@ -238,7 +238,8 @@ struct LyricsView: View {
 
     private func loadLyrics() {
         guard let song = player.currentSong else { lines = []; return }
-        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? SourceReference.sidecarURL(for: song, extension: "lrc")
+        guard let url else { lines = []; return }
         lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
         currentIndex = 0
     }
@@ -315,7 +316,8 @@ struct RealLyricsView: View {
 
     private func reload() {
         guard let song = player.currentSong else { lines = []; return }
-        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? URL(fileURLWithPath: song.filePath).deletingPathExtension().appendingPathExtension("lrc")
+        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) } ?? SourceReference.sidecarURL(for: song, extension: "lrc")
+        guard let url else { lines = []; return }
         lines = (try? String(contentsOf: url, encoding: .utf8)).map(LyricParser.parse) ?? []
         currentIndex = 0
     }

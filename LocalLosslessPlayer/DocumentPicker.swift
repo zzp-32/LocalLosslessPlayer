@@ -17,7 +17,7 @@ struct DocumentPicker: UIViewControllerRepresentable {
             UTType(filenameExtension: "flac") ?? .audio,
             UTType(filenameExtension: "alac") ?? .audio
         ]
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.allowsMultipleSelection = true
         picker.delegate = context.coordinator
         return picker

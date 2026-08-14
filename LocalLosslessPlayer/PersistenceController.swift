@@ -51,7 +51,10 @@ final class PersistenceController {
             attribute("createdAt", .dateAttributeType, optional: false),
             attribute("lastPlayedAt", .dateAttributeType),
             attribute("artworkPath", .stringAttributeType),
-            attribute("lyricsPath", .stringAttributeType)
+            attribute("lyricsPath", .stringAttributeType),
+            attribute("sourceBookmark", .binaryDataAttributeType),
+            attribute("sourceRootBookmark", .binaryDataAttributeType),
+            attribute("sourceRelativePath", .stringAttributeType)
         ]
         model.entities = [entity]
         return model
@@ -72,6 +75,9 @@ final class Song: NSManagedObject {
     @NSManaged var lastPlayedAt: Date?
     @NSManaged var artworkPath: String?
     @NSManaged var lyricsPath: String?
+    @NSManaged var sourceBookmark: Data?
+    @NSManaged var sourceRootBookmark: Data?
+    @NSManaged var sourceRelativePath: String?
 }
 
 extension Song {

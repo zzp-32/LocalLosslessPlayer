@@ -9,9 +9,9 @@ struct ImportResult {
     let failures: [String]
 
     var message: String {
-        var parts = ["成功导入 \(importedCount) 首"]
-        if duplicateCount > 0 { parts.append("跳过 \(duplicateCount) 个重复文件") }
-        if !failures.isEmpty { parts.append("失败：\(failures.joined(separator: "；"))") }
+        var parts = ["Imported \(importedCount) songs"]
+        if duplicateCount > 0 { parts.append("Skipped \(duplicateCount) duplicates") }
+        if !failures.isEmpty { parts.append("Failed: \(failures.joined(separator: ", "))") }
         return parts.joined(separator: "\n")
     }
 }
@@ -27,7 +27,7 @@ final class FileImporterService {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let extensions = Set(["flac", "alac", "wav", "wave", "aif", "aiff", "m4a", "mp3", "aac", "caf"])
-                let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .contentTypeKey]
+                let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
                 let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
                 var files: [URL] = []
                 if let enumerator = FileManager.default.enumerator(
@@ -49,6 +49,8 @@ final class FileImporterService {
 
     func importFiles(
         _ urls: [URL],
+        rootFolder: URL? = nil,
+        rootBookmark: Data? = nil,
         progress: (String, Int, Int) -> Void
     ) async -> ImportResult {
         var importedCount = 0
@@ -58,77 +60,67 @@ final class FileImporterService {
         for (index, source) in urls.enumerated() {
             progress(source.lastPathComponent, index + 1, urls.count)
             do {
-                let outcome = try await importFile(source)
-                switch outcome {
+                switch try await indexFile(source, rootFolder: rootFolder, rootBookmark: rootBookmark) {
                 case .imported: importedCount += 1
                 case .duplicate: duplicateCount += 1
                 }
-                if importedCount > 0, importedCount % 25 == 0, context.hasChanges {
-                    try context.save()
-                }
+                if importedCount > 0, importedCount % 25 == 0, context.hasChanges { try context.save() }
             } catch {
-                failures.append("\(source.lastPathComponent)：\(error.localizedDescription)")
+                failures.append("\(source.lastPathComponent): \(error.localizedDescription)")
             }
         }
 
         if context.hasChanges {
             do { try context.save() }
-            catch { failures.append("音乐库保存失败：\(error.localizedDescription)") }
+            catch { failures.append("Library save failed: \(error.localizedDescription)") }
         }
-
-        return ImportResult(
-            importedCount: importedCount,
-            duplicateCount: duplicateCount,
-            failures: failures
-        )
+        return ImportResult(importedCount: importedCount, duplicateCount: duplicateCount, failures: failures)
     }
 
     private enum Outcome { case imported, duplicate }
 
-    private func importFile(_ source: URL) async throws -> Outcome {
+    private func indexFile(_ source: URL, rootFolder: URL?, rootBookmark: Data?) async throws -> Outcome {
         let hasSecurityScope = source.startAccessingSecurityScopedResource()
         defer { if hasSecurityScope { source.stopAccessingSecurityScopedResource() } }
+        guard fileManager.fileExists(atPath: source.path) else { throw SourceReference.ReferenceError.unavailable }
 
-        let destination = uniqueDestination(for: source, in: StorageConfiguration.mediaRootURL)
-        let checksum = try await copyAndHash(from: source, to: destination)
-        if try existingSong(with: checksum) != nil {
-            try? fileManager.removeItem(at: destination)
+        let checksum = try await hash(source)
+        let fileBookmark = try SourceReference.bookmark(for: source)
+        let relativePath = rootFolder.flatMap { SourceReference.relativePath(of: source, in: $0) }
+
+        if let existing = try existingSong(with: checksum) {
+            updateReference(existing, source: source, fileBookmark: fileBookmark, rootBookmark: rootBookmark, relativePath: relativePath)
             return .duplicate
         }
 
-        do {
-            let duration = (try? await duration(of: destination)) ?? 0
+        let asset = AVURLAsset(url: source)
+        let duration = (try? await asset.load(.duration)).map(CMTimeGetSeconds).flatMap { $0.isFinite ? max(0, $0) : nil } ?? 0
+        let metadata = asset.commonMetadata
+        let song = Song(context: context)
+        song.id = UUID()
+        song.title = metadataValue(metadata, key: .commonKeyTitle) ?? source.deletingPathExtension().lastPathComponent
+        song.artist = metadataValue(metadata, key: .commonKeyArtist)
+        song.album = metadataValue(metadata, key: .commonKeyAlbumName)
+        song.fileName = source.lastPathComponent
+        song.filePath = relativePath ?? source.lastPathComponent
+        song.sourceBookmark = fileBookmark
+        song.sourceRootBookmark = rootBookmark
+        song.sourceRelativePath = relativePath
+        song.checksum = checksum
+        song.duration = duration
+        song.createdAt = Date()
 
-            let song = Song(context: context)
-            song.id = UUID()
-            let metadata = AVURLAsset(url: destination).commonMetadata
-            song.title = metadataValue(metadata, key: .commonKeyTitle) ?? source.deletingPathExtension().lastPathComponent
-            song.artist = metadataValue(metadata, key: .commonKeyArtist)
-            song.album = metadataValue(metadata, key: .commonKeyAlbumName)
-            song.fileName = destination.lastPathComponent
-            song.filePath = destination.path
-            song.checksum = checksum
-            song.duration = duration
-            song.createdAt = Date()
-            Task { await MetadataMatcher.shared.match(song: song) }
-            return .imported
-        } catch {
-            try? fileManager.removeItem(at: destination)
-            throw error
-        }
+        _ = LocalMetadataService.apply(to: song)
+        Task { await MetadataMatcher.shared.match(song: song) }
+        return .imported
     }
 
-    private func uniqueDestination(for source: URL, in root: URL) -> URL {
-        let base = source.deletingPathExtension().lastPathComponent
-        let ext = source.pathExtension
-        var candidate = root.appendingPathComponent(source.lastPathComponent)
-        var index = 1
-        while fileManager.fileExists(atPath: candidate.path) {
-            let name = ext.isEmpty ? "\(base)-\(index)" : "\(base)-\(index).\(ext)"
-            candidate = root.appendingPathComponent(name)
-            index += 1
-        }
-        return candidate
+    private func updateReference(_ song: Song, source: URL, fileBookmark: Data, rootBookmark: Data?, relativePath: String?) {
+        song.fileName = source.lastPathComponent
+        song.filePath = relativePath ?? source.lastPathComponent
+        song.sourceBookmark = fileBookmark
+        song.sourceRootBookmark = rootBookmark
+        song.sourceRelativePath = relativePath
     }
 
     private func existingSong(with checksum: String) throws -> Song? {
@@ -138,32 +130,19 @@ final class FileImporterService {
         return try context.fetch(request).first
     }
 
-    private func copyAndHash(from source: URL, to destination: URL) async throws -> String {
+    private func hash(_ source: URL) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    try FileManager.default.copyItem(at: source, to: destination)
-                    let handle = try FileHandle(forReadingFrom: destination)
+                    let handle = try FileHandle(forReadingFrom: source)
                     defer { try? handle.close() }
                     var hasher = SHA256()
-                    while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
-                        hasher.update(data: data)
-                    }
+                    while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty { hasher.update(data: data) }
                     let checksum = hasher.finalize().map { String(format: "%02x", $0) }.joined()
                     continuation.resume(returning: checksum)
-                } catch {
-                    try? FileManager.default.removeItem(at: destination)
-                    continuation.resume(throwing: error)
-                }
+                } catch { continuation.resume(throwing: error) }
             }
         }
-    }
-
-    private func duration(of url: URL) async throws -> Double {
-        let asset = AVURLAsset(url: url)
-        let time = try await asset.load(.duration)
-        let seconds = CMTimeGetSeconds(time)
-        return seconds.isFinite ? max(0, seconds) : 0
     }
 }
 

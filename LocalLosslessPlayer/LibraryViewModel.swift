@@ -22,10 +22,10 @@ final class LibraryViewModel: ObservableObject {
         songs = (try? context.fetch(request)) ?? []
     }
 
-    func importFiles(_ urls: [URL], reportStatus: Bool = true) async {
+    func importFiles(_ urls: [URL], rootFolder: URL? = nil, rootBookmark: Data? = nil, reportStatus: Bool = true) async {
         guard !urls.isEmpty, !isImporting else { return }
         isImporting = true
-        let result = await FileImporterService(context: context).importFiles(urls) { [weak self] name, current, total in
+        let result = await FileImporterService(context: context).importFiles(urls, rootFolder: rootFolder, rootBookmark: rootBookmark) { [weak self] name, current, total in
             self?.importProgress = "\(current)/\(total)  \(name)"
         }
         refresh()
@@ -42,7 +42,7 @@ final class LibraryViewModel: ObservableObject {
     func importFolder(_ folder: URL) async {
         guard !isImporting else { return }
         let hasAccess = folder.startAccessingSecurityScopedResource()
-        saveFolderBookmark(folder)
+        let bookmark = saveFolderBookmark(folder)
         isImporting = true
         importProgress = "Scanning folder..."
         let files = await FileImporterService.audioFiles(in: folder)
@@ -53,7 +53,7 @@ final class LibraryViewModel: ObservableObject {
             importProgress = ""
             return
         }
-        await importFiles(files)
+        await importFiles(files, rootFolder: folder, rootBookmark: bookmark)
         if hasAccess { folder.stopAccessingSecurityScopedResource() }
     }
 
@@ -70,21 +70,21 @@ final class LibraryViewModel: ObservableObject {
             if hasAccess { folder.stopAccessingSecurityScopedResource() }
             return
         }
-        await importFiles(files, reportStatus: false)
+        await importFiles(files, rootFolder: folder, rootBookmark: data, reportStatus: false)
         if hasAccess { folder.stopAccessingSecurityScopedResource() }
     }
 
-    private func saveFolderBookmark(_ folder: URL) {
-        guard let data = try? folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else {
+    private func saveFolderBookmark(_ folder: URL) -> Data? {
+        guard let data = try? SourceReference.bookmark(for: folder) else {
             errorMessage = "Unable to save folder permission. Please select it again."
-            return
+            return nil
         }
         UserDefaults.standard.set(data, forKey: "library.folder.bookmark")
         UserDefaults.standard.set(folder.lastPathComponent, forKey: "library.folder.name")
+        return data
     }
 
     func delete(_ song: Song) {
-        try? FileManager.default.removeItem(atPath: song.filePath)
         context.delete(song)
         do { try context.save(); refresh() }
         catch { errorMessage = "Delete failed: \(error.localizedDescription)" }

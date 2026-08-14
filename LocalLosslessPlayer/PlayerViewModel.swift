@@ -30,6 +30,8 @@ final class PlayerViewModel: ObservableObject {
     private var queueIndex = 0
     private let service = AudioPlayerService()
     private var sleepTimer: Timer?
+    private var activeSourceURL: URL?
+    private var activeSourceIsScoped = false
 
     init() {
         service.$isPlaying.assign(to: &$isPlaying)
@@ -142,11 +144,18 @@ final class PlayerViewModel: ObservableObject {
 
     private func loadAndPlay(_ song: Song) {
         _ = LocalMetadataService.apply(to: song)
+        guard let sourceURL = SourceReference.resolveURL(for: song) else {
+            errorMessage = "文件不可用，请重新定位文件夹。"
+            return
+        }
+        if activeSourceIsScoped { activeSourceURL?.stopAccessingSecurityScopedResource() }
+        activeSourceURL = sourceURL
+        activeSourceIsScoped = sourceURL.startAccessingSecurityScopedResource()
         currentSong = song
         Task { await MetadataMatcher.shared.match(song: song) }
         do {
             try service.load(
-                url: URL(fileURLWithPath: song.filePath),
+                url: sourceURL,
                 title: song.title,
                 artist: song.artist
             )
@@ -154,6 +163,8 @@ final class PlayerViewModel: ObservableObject {
             song.lastPlayedAt = Date()
             try song.managedObjectContext?.save()
         } catch {
+            if activeSourceIsScoped { sourceURL.stopAccessingSecurityScopedResource() }
+            activeSourceIsScoped = false
             errorMessage = "无法播放“\(song.title)”：\(error.localizedDescription)"
         }
     }

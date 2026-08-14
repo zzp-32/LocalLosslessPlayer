@@ -79,7 +79,11 @@ struct ContentView: View {
         NavigationStack {
             ZStack {
                 PlayerPalette.background.ignoresSafeArea()
-                LibraryHome(library: library, showImporter: { showingFolderPicker = true })
+                LibraryHome(
+                    library: library,
+                    showSongImporter: { showingImporter = true },
+                    showFolderImporter: { showingFolderPicker = true }
+                )
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -124,7 +128,8 @@ private struct LibraryHome: View {
     @ObservedObject var library: LibraryViewModel
     @State private var searchText = ""
     @State private var sortByTitle = false
-    let showImporter: () -> Void
+    let showSongImporter: () -> Void
+    let showFolderImporter: () -> Void
 
     private var songs: [Song] {
         let source = searchText.isEmpty ? library.songs : library.songs.filter {
@@ -144,7 +149,13 @@ private struct LibraryHome: View {
                         Text("\(library.songs.count) 首歌曲").font(.subheadline).foregroundStyle(PlayerPalette.secondary)
                     }
                     Spacer()
-                    Button(action: showImporter) {
+                    Menu {
+                        Button(action: showSongImporter) { Label("导入歌曲", systemImage: "doc.badge.plus") }
+                        Button(action: showFolderImporter) { Label("导入文件夹", systemImage: "folder.badge.plus") }
+                        if UserDefaults.standard.data(forKey: "library.folder.bookmark") != nil {
+                            Button(action: showFolderImporter) { Label("重新定位文件夹", systemImage: "folder.badge.questionmark") }
+                        }
+                    } label: {
                         Image(systemName: "plus").font(.system(size: 19, weight: .bold))
                             .foregroundStyle(PlayerPalette.background).frame(width: 42, height: 42)
                             .background(PlayerPalette.green).clipShape(Circle())
@@ -172,7 +183,7 @@ private struct LibraryHome: View {
                     VStack(spacing: 14) {
                         Image(systemName: searchText.isEmpty ? "waveform" : "magnifyingglass").font(.system(size: 38)).foregroundStyle(PlayerPalette.green)
                         Text(searchText.isEmpty ? "还没有音乐" : "没有找到歌曲").font(.headline).foregroundStyle(PlayerPalette.primary)
-                        if searchText.isEmpty { Button("导入音乐", action: showImporter).buttonStyle(.borderedProminent).tint(PlayerPalette.green) }
+                        if searchText.isEmpty { Button("导入文件夹", action: showFolderImporter).buttonStyle(.borderedProminent).tint(PlayerPalette.green) }
                     }.frame(maxWidth: .infinity).padding(.top, 100)
                 } else {
                     LazyVStack(spacing: 0) {
@@ -195,13 +206,18 @@ private struct SongRow: View {
     let current: Bool
     let action: () -> Void
 
+    private var isAvailable: Bool { SourceReference.isAvailable(song) }
+
     var body: some View {
         HStack(spacing: 12) {
             Button(action: action) { ArtworkTile(title: song.title, size: 48, artworkPath: song.artworkPath) }.buttonStyle(.plain)
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(song.title).font(.system(size: 16, weight: current ? .semibold : .regular)).foregroundStyle(current ? PlayerPalette.green : PlayerPalette.primary).lineLimit(1)
-                    Text(song.artist.nilIfEmpty ?? "未知艺术家").font(.caption).foregroundStyle(PlayerPalette.secondary).lineLimit(1)
+                    Text(isAvailable ? (song.artist.nilIfEmpty ?? "未知艺术家") : "文件不可用")
+                        .font(.caption)
+                        .foregroundStyle(isAvailable ? PlayerPalette.secondary : PlayerPalette.coral)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }.buttonStyle(.plain)
