@@ -6,8 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var library: LibraryViewModel
     @State private var selectedTab = 0
-    @State private var showingImporter = false
-    @State private var showingFolderPicker = false
+    @State private var importPickerMode: ImportPickerMode?
 
     @State private var showingMenu = false
 
@@ -44,24 +43,12 @@ struct ContentView: View {
         .preferredColorScheme(settings.theme == .light ? .light : .dark)
         .onAppear { player.apply(settings: settings) }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
-        .sheet(isPresented: $showingImporter) {
-            DocumentPicker { resources in
-                showingImporter = false
-                Task {
-                    defer { resources.forEach { $0.releaseAccess() } }
-                    await library.importFiles(resources.map(\.url))
-                }
-            }
-            .ignoresSafeArea()
-        }
-        .sheet(isPresented: $showingFolderPicker) {
-            FolderPicker { resource in
-                showingFolderPicker = false
-                Task {
-                    defer { resource.releaseAccess() }
-                    await library.importFolder(resource.url)
-                }
-            }
+        .sheet(item: $importPickerMode) { mode in
+            DocumentPicker(
+                mode: mode,
+                onPick: handlePickerSelection,
+                onCancel: { importPickerMode = nil }
+            )
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showingMenu) {
@@ -87,8 +74,8 @@ struct ContentView: View {
                 PlayerPalette.background.ignoresSafeArea()
                 LibraryHome(
                     library: library,
-                    showSongImporter: { showingImporter = true },
-                    showFolderImporter: { showingFolderPicker = true }
+                    showSongImporter: { importPickerMode = .songs },
+                    showFolderImporter: { importPickerMode = .folder }
                 )
             }
             .toolbar {
@@ -126,6 +113,43 @@ struct ContentView: View {
 
     private func messageBinding(for message: Binding<String?>) -> Binding<Bool> {
         Binding(get: { message.wrappedValue != nil }, set: { if !$0 { message.wrappedValue = nil } })
+    }
+
+    private func handlePickerSelection(_ resources: [PickedResource]) {
+        let mode = importPickerMode
+        importPickerMode = nil
+        print("[Picker] Result delivered to ContentView, mode = \(mode?.rawValue ?? "unknown")")
+
+        guard !resources.isEmpty else {
+            library.errorMessage = "文件选择器返回了空的 URL 列表。"
+            return
+        }
+
+        switch mode {
+        case .folder:
+            guard let folder = resources.first else { return }
+            defer { folder.releaseAccess() }
+            guard folder.isDirectory else {
+                library.errorMessage = "选择器返回的 URL 不是文件夹：\(folder.url.lastPathComponent)"
+                return
+            }
+            guard folder.bookmarkData != nil else {
+                library.errorMessage = "已收到文件夹 URL，但 bookmark 创建失败：\(folder.bookmarkError ?? "未知错误")"
+                return
+            }
+            library.statusMessage = "文件夹选择回调成功\n\(folder.url.path)"
+            print("[Picker] Folder callback phase completed; scan intentionally not started")
+
+        case .songs:
+            Task {
+                defer { resources.forEach { $0.releaseAccess() } }
+                await library.importFiles(resources.map(\.url))
+            }
+
+        case nil:
+            resources.forEach { $0.releaseAccess() }
+            library.errorMessage = "文件选择器返回结果时导入模式已经丢失。"
+        }
     }
 }
 
