@@ -94,6 +94,10 @@ final class PlayerViewModel: ObservableObject {
             gains: settings.equalizerGains,
             preamp: settings.preamp,
             balance: settings.balance,
+            bassBoost: settings.bassBoost,
+            trebleBoost: settings.trebleBoost,
+            stereoExpansion: settings.stereoExpansion,
+            monoAudio: settings.monoAudio,
             rate: settings.playbackRate,
             loudness: settings.loudness
         )

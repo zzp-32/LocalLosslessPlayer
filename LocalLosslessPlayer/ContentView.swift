@@ -8,6 +8,7 @@ struct ContentView: View {
     @StateObject private var library: LibraryViewModel
     @State private var selectedTab = 0
     @State private var showingMenu = false
+    @State private var showingSearch = false
 
     init() {
         _library = StateObject(wrappedValue: LibraryViewModel(context: PersistenceController.shared.container.viewContext))
@@ -19,7 +20,7 @@ struct ContentView: View {
             TabView(selection: $selectedTab) {
                 libraryTab.tag(0)
                 livePlayerTab.tag(1)
-                searchTab.tag(2)
+                soundEffectsTab.tag(2)
             }
             .tint(PlayerPalette.green)
             if library.isImporting {
@@ -53,6 +54,20 @@ struct ContentView: View {
                 .environmentObject(settings)
                 .environmentObject(library)
         }
+        .sheet(isPresented: $showingSearch) {
+            NavigationStack {
+                SearchView(library: library)
+                    .navigationTitle("搜索")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("完成") { showingSearch = false }
+                                .foregroundStyle(PlayerPalette.green)
+                        }
+                    }
+            }
+            .preferredColorScheme(.dark)
+        }
         .alert("导入失败", isPresented: messageBinding(for: $library.errorMessage)) {
             Button("好") { library.errorMessage = nil }
         } message: { Text(library.errorMessage ?? "未知错误") }
@@ -79,32 +94,32 @@ struct ContentView: View {
                     Button { showingMenu = true } label: { Image(systemName: "line.3.horizontal") }
                         .accessibilityLabel("更多功能")
                 }
-            }
-            .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { Task { await library.scanMusicFolder() } } label: { Image(systemName: "arrow.clockwise") }
-                        .accessibilityLabel("刷新歌库")
+                    Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
+                        .accessibilityLabel("搜索")
                 }
             }
             .toolbarBackground(PlayerPalette.background, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
-        .tabItem { Label("音乐库", systemImage: "rectangle.stack.fill") }
+        .tabItem { Image(systemName: "rectangle.stack.fill") }
+        .accessibilityLabel("媒体库")
     }
 
     private var livePlayerTab: some View {
         NavigationStack {
             LivePlaybackView().environmentObject(player).environmentObject(settings)
         }
-        .tabItem { Label("正在播放", systemImage: "play.circle.fill") }
+        .tabItem { Image(systemName: "play.circle.fill") }
+        .accessibilityLabel("正在播放")
     }
 
-    private var searchTab: some View {
-        NavigationStack {
-            SearchView(library: library)
-                .navigationTitle("搜索")
-        }
-        .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+    private var soundEffectsTab: some View {
+        SoundEffectsCenterView()
+            .environmentObject(player)
+            .environmentObject(settings)
+            .tabItem { Image(systemName: "slider.horizontal.3") }
+            .accessibilityLabel("音效中心")
     }
 
     private func messageBinding(for message: Binding<String?>) -> Binding<Bool> {
@@ -121,18 +136,14 @@ struct ContentView: View {
 private struct LibraryHome: View {
     @EnvironmentObject private var player: PlayerViewModel
     @ObservedObject var library: LibraryViewModel
-    @State private var searchText = ""
     @State private var sortByTitle = false
     let openFilesApp: () -> Void
     let scanMusicFolder: () -> Void
 
     private var songs: [Song] {
-        let source = searchText.isEmpty ? library.songs : library.songs.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            ($0.artist?.localizedCaseInsensitiveContains(searchText) ?? false) ||
-            ($0.album?.localizedCaseInsensitiveContains(searchText) ?? false)
-        }
-        return sortByTitle ? source.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } : source
+        sortByTitle
+            ? library.songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            : library.songs
     }
 
     var body: some View {
@@ -156,15 +167,8 @@ private struct LibraryHome: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
 
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(PlayerPalette.secondary)
-                    TextField("搜索歌曲、艺术家或专辑", text: $searchText).foregroundStyle(PlayerPalette.primary)
-                    if !searchText.isEmpty { Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(PlayerPalette.secondary) } }
-                }
-                .padding(.horizontal, 14).frame(height: 44).background(PlayerPalette.surface).cornerRadius(7).padding(.horizontal, 20)
-
                 HStack {
-                    Text(searchText.isEmpty ? "全部歌曲" : "搜索结果").font(.headline).foregroundStyle(PlayerPalette.primary)
+                    Text("全部歌曲").font(.headline).foregroundStyle(PlayerPalette.primary)
                     Spacer()
                     Button { sortByTitle.toggle() } label: { Image(systemName: sortByTitle ? "textformat.abc" : "clock").foregroundStyle(PlayerPalette.green) }
                         .accessibilityLabel(sortByTitle ? "按最近导入排序" : "按标题排序")
@@ -173,9 +177,9 @@ private struct LibraryHome: View {
 
                 if songs.isEmpty {
                     VStack(spacing: 14) {
-                        Image(systemName: searchText.isEmpty ? "waveform" : "magnifyingglass").font(.system(size: 38)).foregroundStyle(PlayerPalette.green)
-                        Text(searchText.isEmpty ? "还没有音乐" : "没有找到歌曲").font(.headline).foregroundStyle(PlayerPalette.primary)
-                        if searchText.isEmpty { Button("打开“文件”App", action: openFilesApp).buttonStyle(.borderedProminent).tint(PlayerPalette.green) }
+                        Image(systemName: "waveform").font(.system(size: 38)).foregroundStyle(PlayerPalette.green)
+                        Text("还没有音乐").font(.headline).foregroundStyle(PlayerPalette.primary)
+                        Button("打开“文件”App", action: openFilesApp).buttonStyle(.borderedProminent).tint(PlayerPalette.green)
                     }.frame(maxWidth: .infinity).padding(.top, 100)
                 } else {
                     LazyVStack(spacing: 0) {

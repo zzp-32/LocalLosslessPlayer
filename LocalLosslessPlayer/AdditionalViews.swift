@@ -78,51 +78,8 @@ struct FunctionMenuView: View {
 }
 
 struct EQView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var settings: AppSettings
-    @EnvironmentObject private var player: PlayerViewModel
-    private let frequencies = ["31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"]
-
     var body: some View {
-        NavigationStack {
-            ZStack {
-                PlayerPalette.background.ignoresSafeArea()
-                VStack(spacing: 18) {
-                    HStack(alignment: .bottom, spacing: 8) {
-                        ForEach(settings.equalizerGains.indices, id: \.self) { index in
-                            VStack(spacing: 5) {
-                                Text(String(format: "%+.0f", settings.equalizerGains[index])).font(.caption2.monospacedDigit()).foregroundStyle(PlayerPalette.secondary)
-                                Slider(value: Binding(get: { settings.equalizerGains[index] }, set: { settings.equalizerGains[index] = $0; player.apply(settings: settings) }), in: -12...12)
-                                    .tint(PlayerPalette.green).rotationEffect(.degrees(-90)).frame(width: 100, height: 26)
-                                Text(frequencies[index]).font(.caption2).foregroundStyle(PlayerPalette.secondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .padding(.top, 18)
-                    .frame(height: 260)
-                    VStack(spacing: 15) {
-                        valueSlider("Preamp", value: Binding(get: { settings.preamp }, set: { settings.preamp = $0; player.apply(settings: settings) }), range: -12...12, suffix: " dB")
-                        valueSlider("Balance", value: Binding(get: { settings.balance }, set: { settings.balance = $0; player.apply(settings: settings) }), range: -100...100, suffix: "")
-                        Toggle(isOn: Binding(get: { settings.loudness }, set: { settings.loudness = $0; player.apply(settings: settings) })) { Label("Loudness", systemImage: "speaker.wave.2") }
-                            .tint(PlayerPalette.green).foregroundStyle(PlayerPalette.primary)
-                    }
-                    .padding(.horizontal, 22)
-                    Spacer()
-                }
-            }
-            .navigationTitle("EQ 音效调节")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("重置") { settings.equalizerGains = Array(repeating: 0, count: 10); settings.preamp = 0; settings.balance = 0; settings.loudness = false; player.apply(settings: settings) }.foregroundStyle(PlayerPalette.green) } }
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    private func valueSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, suffix: String) -> some View {
-        VStack(spacing: 5) {
-            HStack { Text(title).foregroundStyle(PlayerPalette.primary); Spacer(); Text(String(format: "%.0f%@", value.wrappedValue, suffix)).font(.caption.monospacedDigit()).foregroundStyle(PlayerPalette.secondary) }
-            Slider(value: value, in: range).tint(PlayerPalette.green)
-        }
+        SoundEffectsCenterView()
     }
 }
 

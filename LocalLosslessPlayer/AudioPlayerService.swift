@@ -18,43 +18,77 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
-    private let equalizer = AVAudioUnitEQ(numberOfBands: 10)
+    private let equalizer = AVAudioUnitEQ(numberOfBands: AppSettings.equalizerFrequencies.count)
+    private let toneEqualizer = AVAudioUnitEQ(numberOfBands: 2)
     private let timePitch = AVAudioUnitTimePitch()
+    private let stereoSpace = AVAudioUnitReverb()
     private let balanceMixer = AVAudioMixerNode()
     private var audioFile: AVAudioFile?
     private var startFrame: AVAudioFramePosition = 0
     private var scheduleGeneration = 0
     private var progressTimer: Timer?
+    private var playbackRate: Double = 1
+    private var isMonoAudio = false
 
     override init() {
         super.init()
         engine.attach(playerNode)
         engine.attach(equalizer)
+        engine.attach(toneEqualizer)
         engine.attach(timePitch)
+        engine.attach(stereoSpace)
         engine.attach(balanceMixer)
-        let frequencies: [Float] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        for (index, frequency) in frequencies.enumerated() {
+        for (index, frequency) in AppSettings.equalizerFrequencies.enumerated() {
             equalizer.bands[index].filterType = .parametric
-            equalizer.bands[index].frequency = frequency
-            equalizer.bands[index].bandwidth = 1
+            equalizer.bands[index].frequency = Float(frequency)
+            equalizer.bands[index].bandwidth = 1.0 / 3.0
             equalizer.bands[index].bypass = false
         }
+
+        toneEqualizer.bands[0].filterType = .lowShelf
+        toneEqualizer.bands[0].frequency = 120
+        toneEqualizer.bands[0].bandwidth = 0.7
+        toneEqualizer.bands[0].bypass = false
+        toneEqualizer.bands[1].filterType = .highShelf
+        toneEqualizer.bands[1].frequency = 6_000
+        toneEqualizer.bands[1].bandwidth = 0.7
+        toneEqualizer.bands[1].bypass = false
+        stereoSpace.loadFactoryPreset(.smallRoom)
+        stereoSpace.wetDryMix = 0
+
         engine.connect(playerNode, to: equalizer, format: nil)
-        engine.connect(equalizer, to: timePitch, format: nil)
-        engine.connect(timePitch, to: balanceMixer, format: nil)
+        engine.connect(equalizer, to: toneEqualizer, format: nil)
+        engine.connect(toneEqualizer, to: timePitch, format: nil)
+        engine.connect(timePitch, to: stereoSpace, format: nil)
+        engine.connect(stereoSpace, to: balanceMixer, format: nil)
         engine.connect(balanceMixer, to: engine.mainMixerNode, format: nil)
         configureAudioSession()
         configureRemoteCommands()
     }
 
-    func applySettings(gains: [Double], preamp: Double, balance: Double, rate: Double, loudness: Bool) {
+    func applySettings(
+        gains: [Double],
+        preamp: Double,
+        balance: Double,
+        bassBoost: Double,
+        trebleBoost: Double,
+        stereoExpansion: Double,
+        monoAudio: Bool,
+        rate: Double,
+        loudness: Bool
+    ) {
         for index in 0..<min(gains.count, equalizer.bands.count) {
             equalizer.bands[index].gain = Float(max(-12, min(12, gains[index])))
         }
+        toneEqualizer.bands[0].gain = Float(max(0, min(12, bassBoost)))
+        toneEqualizer.bands[1].gain = Float(max(0, min(12, trebleBoost)))
         balanceMixer.pan = Float(max(-1, min(1, balance / 100)))
         balanceMixer.outputVolume = Float(max(0.05, min(2, pow(10, preamp / 20))))
-        timePitch.rate = Float(max(0.5, min(2, rate)))
+        playbackRate = max(0.5, min(2, rate))
+        timePitch.rate = Float(playbackRate)
         equalizer.globalGain = loudness ? 2 : 0
+        stereoSpace.wetDryMix = Float(max(0, min(100, stereoExpansion)) * 0.18)
+        applyMonoOutputIfNeeded(monoAudio)
     }
 
     func load(url: URL, title: String, artist: String?) throws {
@@ -137,6 +171,14 @@ final class AudioPlayerService: NSObject, ObservableObject {
         try? session.setActive(true)
     }
 
+    private func applyMonoOutputIfNeeded(_ monoAudio: Bool) {
+        guard monoAudio != isMonoAudio else { return }
+        isMonoAudio = monoAudio
+        let session = AVAudioSession.sharedInstance()
+        let preferredChannels = monoAudio ? 1 : min(2, max(1, session.maximumOutputNumberOfChannels))
+        try? session.setPreferredOutputNumberOfChannels(preferredChannels)
+    }
+
     private func configureRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
@@ -168,14 +210,16 @@ final class AudioPlayerService: NSObject, ObservableObject {
             MPMediaItemPropertyArtist: artist ?? "",
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1 : 0
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: playbackRate
         ]
     }
 
     private func updatePlaybackState() {
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1 : 0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = playbackRate
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
