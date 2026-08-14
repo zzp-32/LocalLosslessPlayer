@@ -8,9 +8,7 @@ enum SourceReference {
     }
 
     static func bookmark(for url: URL) throws -> Data {
-        // iOS security-scoped picker URLs use normal bookmark options. The
-        // macOS-only withSecurityScope option is unavailable on iOS.
-        try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
     static func resolveBookmark(_ data: Data) -> (url: URL, stale: Bool)? {
@@ -25,15 +23,15 @@ enum SourceReference {
     }
 
     static func resolveURL(for song: Song) -> URL? {
-        if let bookmark = song.sourceBookmark,
-           let resolved = resolveBookmark(bookmark) {
-            return resolved.url
-        }
-
         if let rootBookmark = song.sourceRootBookmark,
            let relativePath = song.sourceRelativePath,
            let root = resolveBookmark(rootBookmark)?.url {
             return root.appendingPathComponent(relativePath)
+        }
+
+        if let bookmark = song.sourceBookmark,
+           let resolved = resolveBookmark(bookmark) {
+            return resolved.url
         }
 
         // Migration fallback for songs imported by older app versions.

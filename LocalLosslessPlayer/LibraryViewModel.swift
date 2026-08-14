@@ -42,36 +42,46 @@ final class LibraryViewModel: ObservableObject {
     func importFolder(_ folder: URL) async {
         guard !isImporting else { return }
         let hasAccess = folder.startAccessingSecurityScopedResource()
-        let bookmark = saveFolderBookmark(folder)
+        defer { if hasAccess { folder.stopAccessingSecurityScopedResource() } }
+        print("[Import] Root folder security scope = \(hasAccess), path = \(folder.path)")
+
+        guard let bookmark = saveFolderBookmark(folder) else { return }
         isImporting = true
         importProgress = "Scanning folder..."
-        let files = await FileImporterService.audioFiles(in: folder)
+        let scan = await FileImporterService.audioFiles(in: folder)
         isImporting = false
-        guard !files.isEmpty else {
-            if hasAccess { folder.stopAccessingSecurityScopedResource() }
-            errorMessage = "No supported audio files found in this folder."
+        guard !scan.files.isEmpty else {
+            errorMessage = scan.diagnosticMessage
             importProgress = ""
             return
         }
-        await importFiles(files, rootFolder: folder, rootBookmark: bookmark)
-        if hasAccess { folder.stopAccessingSecurityScopedResource() }
+        await importFiles(scan.files, rootFolder: folder, rootBookmark: bookmark)
+        if scan.inaccessibleCount > 0 || scan.coordinatorError != nil || !scan.enumerationErrors.isEmpty {
+            statusMessage = (statusMessage ?? "Import finished") + "\n" + scan.diagnosticMessage
+        }
     }
 
     func rescanSavedFolder() async {
         guard let data = UserDefaults.standard.data(forKey: "library.folder.bookmark") else { return }
         var stale = false
-        guard let folder = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { return }
-        if stale, let renewed = try? folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
-            UserDefaults.standard.set(renewed, forKey: "library.folder.bookmark")
-        }
-        let hasAccess = folder.startAccessingSecurityScopedResource()
-        let files = await FileImporterService.audioFiles(in: folder)
-        guard !files.isEmpty else {
-            if hasAccess { folder.stopAccessingSecurityScopedResource() }
+        guard let folder = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
+            print("[Import] Saved folder bookmark could not be resolved")
             return
         }
-        await importFiles(files, rootFolder: folder, rootBookmark: data, reportStatus: false)
-        if hasAccess { folder.stopAccessingSecurityScopedResource() }
+        var activeBookmark = data
+        if stale, let renewed = try? SourceReference.bookmark(for: folder) {
+            UserDefaults.standard.set(renewed, forKey: "library.folder.bookmark")
+            activeBookmark = renewed
+        }
+        let hasAccess = folder.startAccessingSecurityScopedResource()
+        defer { if hasAccess { folder.stopAccessingSecurityScopedResource() } }
+        print("[Import] Restored folder bookmark, stale = \(stale), scope = \(hasAccess)")
+        let scan = await FileImporterService.audioFiles(in: folder)
+        guard !scan.files.isEmpty else {
+            print("[Import] Restored folder scan returned no files: \(scan.diagnosticMessage)")
+            return
+        }
+        await importFiles(scan.files, rootFolder: folder, rootBookmark: activeBookmark, reportStatus: false)
     }
 
     private func saveFolderBookmark(_ folder: URL) -> Data? {

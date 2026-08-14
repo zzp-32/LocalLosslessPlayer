@@ -45,16 +45,22 @@ struct ContentView: View {
         .onAppear { player.apply(settings: settings) }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
         .sheet(isPresented: $showingImporter) {
-            DocumentPicker { urls in
+            DocumentPicker { resources in
                 showingImporter = false
-                Task { await library.importFiles(urls) }
+                Task {
+                    defer { resources.forEach { $0.releaseAccess() } }
+                    await library.importFiles(resources.map(\.url))
+                }
             }
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showingFolderPicker) {
-            FolderPicker { folder in
+            FolderPicker { resource in
                 showingFolderPicker = false
-                Task { await library.importFolder(folder) }
+                Task {
+                    defer { resource.releaseAccess() }
+                    await library.importFolder(resource.url)
+                }
             }
             .ignoresSafeArea()
         }
