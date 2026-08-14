@@ -485,7 +485,6 @@ struct NowPlayingView: View {
     @State private var displayMode: DisplayMode = .song
     @State private var metadataRevision = UUID()
     @State private var showingMoreSettings = false
-    @State private var isMatchingLyrics = false
 
     private enum DisplayMode {
         case song
@@ -509,41 +508,15 @@ struct NowPlayingView: View {
                             .environmentObject(player)
                             .transition(.opacity)
                     } else {
-                        InlineLyricsView()
+                        InlineLyricsView(onMoreSettings: { showingMoreSettings = true })
                             .environmentObject(player)
+                            .environmentObject(settings)
                             .transition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .simultaneousGesture(modeSwipeGesture)
-
-                if displayMode == .lyrics {
-                    HStack(spacing: 18) {
-                        Button { rematchLyrics() } label: {
-                            if isMatchingLyrics {
-                                ProgressView().tint(PlayerPalette.primary)
-                            } else {
-                                Image(systemName: "magnifyingglass.circle")
-                            }
-                        }
-                        .accessibilityLabel("重新匹配歌词")
-                        .disabled(isMatchingLyrics)
-                        Spacer()
-                        Button { showingMoreSettings = true } label: {
-                            Image(systemName: "ellipsis")
-                                .rotationEffect(.degrees(90))
-                                .frame(width: 52, height: 52)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("更多设置")
-                    }
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(PlayerPalette.primary)
-                    .padding(.horizontal, 24)
-                    .frame(height: 52)
-                    .zIndex(2)
-                }
 
                 PlaybackControlsView()
                     .environmentObject(player)
@@ -604,14 +577,6 @@ struct NowPlayingView: View {
             }
     }
 
-    private func rematchLyrics() {
-        guard let song = player.currentSong else { return }
-        isMatchingLyrics = true
-        Task {
-            await MetadataMatcher.shared.rematchLyrics(song: song)
-            isMatchingLyrics = false
-        }
-    }
 }
 
 private struct SongDisplayView: View {
@@ -650,6 +615,7 @@ private struct SongDisplayView: View {
 private struct InlineLyricsView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
+    private let onMoreSettings: () -> Void
     @State private var lines: [LyricLine] = []
     @State private var currentIndex = 0
     @State private var isFollowingPlayback = true
@@ -659,17 +625,32 @@ private struct InlineLyricsView: View {
         lines.contains { $0.time != nil }
     }
 
+    init(onMoreSettings: @escaping () -> Void = {}) {
+        self.onMoreSettings = onMoreSettings
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(player.currentSong?.title ?? "未播放")
-                    .font(.headline)
-                    .foregroundStyle(PlayerPalette.primary)
-                    .lineLimit(1)
-                Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家")
-                    .font(.subheadline)
-                    .foregroundStyle(PlayerPalette.secondary)
-                    .lineLimit(1)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(player.currentSong?.title ?? "未播放")
+                        .font(.headline)
+                        .foregroundStyle(PlayerPalette.primary)
+                        .lineLimit(1)
+                    Text((player.currentSong?.artist).nilIfEmpty ?? "未知艺术家")
+                        .font(.subheadline)
+                        .foregroundStyle(PlayerPalette.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button(action: onMoreSettings) {
+                    Image(systemName: "ellipsis")
+                        .rotationEffect(.degrees(90))
+                        .frame(width: 52, height: 52)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("更多设置")
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
             .padding(.top, 4)
@@ -730,7 +711,11 @@ private struct InlineLyricsView: View {
                                     .foregroundStyle(hasTimedLyrics && index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
                                     .opacity(lineOpacity(at: index))
                                     .multilineTextAlignment(settings.lyricAlignment.textAlignment)
-                                    .frame(width: max(0, geometry.size.width - 48), alignment: settings.lyricAlignment.frameAlignment)
+                                    .frame(
+                                        width: max(0, geometry.size.width - 48),
+                                        minHeight: max(settings.lyricFontSize, settings.lyricHighlightFontSize) * 1.35,
+                                        alignment: settings.lyricAlignment.frameAlignment
+                                    )
                                     .fixedSize(horizontal: false, vertical: true)
                                     .contentShape(Rectangle())
                                     .onTapGesture { seek(to: line, at: index, proxy: proxy) }
@@ -814,7 +799,9 @@ private struct InlineLyricsView: View {
             return
         }
         let lyricTime = player.currentTime + settings.lyricOffset
-        currentIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
+        let nextIndex = max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
+        guard nextIndex != currentIndex else { return }
+        currentIndex = nextIndex
     }
 
     private func seek(to line: LyricLine, at index: Int, proxy: ScrollViewProxy) {
