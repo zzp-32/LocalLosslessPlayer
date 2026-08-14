@@ -484,6 +484,8 @@ struct NowPlayingView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var displayMode: DisplayMode = .song
     @State private var metadataRevision = UUID()
+    @State private var showingMoreSettings = false
+    @State private var isMatchingLyrics = false
 
     private enum DisplayMode {
         case song
@@ -516,6 +518,33 @@ struct NowPlayingView: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(modeSwipeGesture)
 
+                if displayMode == .lyrics {
+                    HStack(spacing: 18) {
+                        Button { rematchLyrics() } label: {
+                            if isMatchingLyrics {
+                                ProgressView().tint(PlayerPalette.primary)
+                            } else {
+                                Image(systemName: "magnifyingglass.circle")
+                            }
+                        }
+                        .accessibilityLabel("重新匹配歌词")
+                        .disabled(isMatchingLyrics)
+                        Spacer()
+                        Button { showingMoreSettings = true } label: {
+                            Image(systemName: "ellipsis")
+                                .rotationEffect(.degrees(90))
+                                .frame(width: 52, height: 52)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("更多设置")
+                    }
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(PlayerPalette.primary)
+                    .padding(.horizontal, 24)
+                    .frame(height: 52)
+                    .zIndex(2)
+                }
+
                 PlaybackControlsView()
                     .environmentObject(player)
             }
@@ -525,6 +554,11 @@ struct NowPlayingView: View {
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
             guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
             metadataRevision = UUID()
+        }
+        .sheet(isPresented: $showingMoreSettings) {
+            MoreSettingsSheet()
+                .environmentObject(player)
+                .environmentObject(settings)
         }
         .animation(.easeInOut(duration: 0.2), value: displayMode)
     }
@@ -569,6 +603,15 @@ struct NowPlayingView: View {
                 }
             }
     }
+
+    private func rematchLyrics() {
+        guard let song = player.currentSong else { return }
+        isMatchingLyrics = true
+        Task {
+            await MetadataMatcher.shared.rematchLyrics(song: song)
+            isMatchingLyrics = false
+        }
+    }
 }
 
 private struct SongDisplayView: View {
@@ -611,7 +654,6 @@ private struct InlineLyricsView: View {
     @State private var currentIndex = 0
     @State private var isFollowingPlayback = true
     @State private var isMatching = false
-    @State private var showingMoreSettings = false
 
     private var hasTimedLyrics: Bool {
         lines.contains { $0.time != nil }
@@ -647,34 +689,6 @@ private struct InlineLyricsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
             guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
             reloadLyrics()
-        }
-        .overlay(alignment: .bottomTrailing) {
-            HStack(spacing: 20) {
-                Button { rematchLyrics() } label: {
-                    if isMatching {
-                        ProgressView().tint(PlayerPalette.primary)
-                    } else {
-                        Image(systemName: "magnifyingglass.circle")
-                    }
-                }
-                .accessibilityLabel("重新匹配歌词")
-                .disabled(isMatching)
-
-                Button { showingMoreSettings = true } label: {
-                    Image(systemName: "ellipsis")
-                        .rotationEffect(.degrees(90))
-                }
-                .accessibilityLabel("更多设置")
-            }
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(PlayerPalette.primary)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 4)
-        }
-        .sheet(isPresented: $showingMoreSettings) {
-            MoreSettingsSheet()
-                .environmentObject(player)
-                .environmentObject(settings)
         }
     }
 
