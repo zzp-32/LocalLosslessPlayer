@@ -228,17 +228,196 @@ private struct SearchView: View {
     @ObservedObject var library: LibraryViewModel
     @State private var query = ""
 
-    private var songs: [Song] { library.songs.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.artist?.localizedCaseInsensitiveContains(query) ?? false) } }
+    private var normalizedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var songs: [Song] {
+        guard !normalizedQuery.isEmpty else { return [] }
+        return library.songs.filter {
+            $0.title.localizedCaseInsensitiveContains(normalizedQuery) ||
+            ($0.artist?.localizedCaseInsensitiveContains(normalizedQuery) ?? false) ||
+            ($0.album?.localizedCaseInsensitiveContains(normalizedQuery) ?? false)
+        }
+    }
+
+    private var artists: [ArtistGroup] {
+        Dictionary(grouping: library.songs) { song in
+            song.artist.nilIfEmpty ?? "未知艺术家"
+        }
+        .map { name, songs in
+            ArtistGroup(
+                name: name,
+                songs: songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            )
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
 
     var body: some View {
         ZStack {
             PlayerPalette.background.ignoresSafeArea()
             VStack(spacing: 0) {
-                HStack { Image(systemName: "magnifyingglass").foregroundStyle(PlayerPalette.secondary); TextField("搜索本地音乐", text: $query).foregroundStyle(PlayerPalette.primary) }
-                    .padding(.horizontal, 14).frame(height: 44).background(PlayerPalette.surface).cornerRadius(7).padding()
-                if query.isEmpty { VStack(spacing: 12) { Image(systemName: "waveform").font(.system(size: 34)).foregroundStyle(PlayerPalette.green); Text("输入歌名或艺术家开始搜索").foregroundStyle(PlayerPalette.secondary) }.padding(.top, 90) }
-                else { List(songs, id: \.objectID) { song in Button { player.play(song, queue: songs) } label: { HStack { ArtworkTile(title: song.title, size: 44); VStack(alignment: .leading) { Text(song.title).foregroundStyle(PlayerPalette.primary); Text(song.artist.nilIfEmpty ?? "未知艺术家").font(.caption).foregroundStyle(PlayerPalette.secondary) } } }.listRowBackground(PlayerPalette.background) } .scrollContentBackground(.hidden) }
+                searchBar
+                if normalizedQuery.isEmpty {
+                    artistList
+                } else {
+                    searchResults
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(PlayerPalette.secondary)
+            TextField("搜索歌曲、歌手或专辑", text: $query)
+                .foregroundStyle(PlayerPalette.primary)
+                .submitLabel(.search)
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(PlayerPalette.secondary)
+                }
+                .accessibilityLabel("清除搜索")
             }
         }
+        .padding(.horizontal, 14)
+        .frame(height: 46)
+        .background(PlayerPalette.surface)
+        .cornerRadius(7)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var artistList: some View {
+        if artists.isEmpty {
+            emptyState(icon: "person.2", title: "还没有已导入的歌手")
+        } else {
+            List {
+                Section {
+                    ForEach(artists) { artist in
+                        NavigationLink {
+                            ArtistSongsView(artist: artist)
+                                .environmentObject(player)
+                        } label: {
+                            HStack(spacing: 12) {
+                                ArtworkTile(
+                                    title: artist.name,
+                                    size: 48,
+                                    artworkPath: artist.songs.first?.artworkPath
+                                )
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(artist.name)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(PlayerPalette.primary)
+                                        .lineLimit(1)
+                                    Text("\(artist.songs.count) 首歌曲")
+                                        .font(.caption)
+                                        .foregroundStyle(PlayerPalette.secondary)
+                                }
+                            }
+                            .frame(height: 58)
+                        }
+                        .listRowBackground(PlayerPalette.background)
+                        .listRowSeparatorTint(PlayerPalette.line)
+                    }
+                } header: {
+                    Text("歌手")
+                        .font(.headline)
+                        .foregroundStyle(PlayerPalette.primary)
+                        .textCase(nil)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var searchResults: some View {
+        if songs.isEmpty {
+            emptyState(icon: "magnifyingglass", title: "没有找到歌曲")
+        } else {
+            List(songs, id: \.objectID) { song in
+                Button { player.play(song, queue: songs) } label: {
+                    SearchSongRow(song: song, isCurrent: player.currentSong == song)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(PlayerPalette.background)
+                .listRowSeparatorTint(PlayerPalette.line)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    private func emptyState(icon: String, title: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 34))
+                .foregroundStyle(PlayerPalette.green)
+            Text(title)
+                .foregroundStyle(PlayerPalette.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct ArtistGroup: Identifiable {
+    let name: String
+    let songs: [Song]
+    var id: String { name }
+}
+
+private struct ArtistSongsView: View {
+    @EnvironmentObject private var player: PlayerViewModel
+    let artist: ArtistGroup
+
+    var body: some View {
+        List(artist.songs, id: \.objectID) { song in
+            Button { player.play(song, queue: artist.songs) } label: {
+                SearchSongRow(song: song, isCurrent: player.currentSong == song)
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(PlayerPalette.background)
+            .listRowSeparatorTint(PlayerPalette.line)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(PlayerPalette.background)
+        .navigationTitle(artist.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SearchSongRow: View {
+    let song: Song
+    let isCurrent: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArtworkTile(title: song.title, size: 48, artworkPath: song.artworkPath)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song.title)
+                    .font(.body.weight(isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? PlayerPalette.green : PlayerPalette.primary)
+                    .lineLimit(1)
+                Text(song.artist.nilIfEmpty ?? "未知艺术家")
+                    .font(.caption)
+                    .foregroundStyle(PlayerPalette.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(timeText(song.duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(PlayerPalette.secondary)
+        }
+        .frame(height: 58)
+        .contentShape(Rectangle())
     }
 }
