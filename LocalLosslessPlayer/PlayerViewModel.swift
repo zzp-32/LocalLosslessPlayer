@@ -160,6 +160,54 @@ final class PlayerViewModel: ObservableObject {
 
     func next() { advance(by: 1) }
 
+    func playNext(_ song: Song, fallbackQueue: [Song]) {
+        guard let currentSong else {
+            play(song, queue: fallbackQueue)
+            return
+        }
+        guard currentSong.objectID != song.objectID else { return }
+
+        if sourceQueue.isEmpty { sourceQueue = fallbackQueue }
+        if !sourceQueue.contains(where: { $0.objectID == song.objectID }) {
+            sourceQueue.append(song)
+        }
+        if queue.isEmpty {
+            queue = [currentSong]
+            queueIndex = 0
+        }
+        if let existingIndex = queue.firstIndex(where: { $0.objectID == song.objectID }) {
+            queue.remove(at: existingIndex)
+            if existingIndex < queueIndex { queueIndex -= 1 }
+        }
+        let insertionIndex = min(queueIndex + 1, queue.count)
+        queue.insert(song, at: insertionIndex)
+        print("[PlaybackQueue] Next = \(song.title)")
+    }
+
+    func removeFromPlaybackQueue(_ objectID: NSManagedObjectID) {
+        let isCurrentSong = currentSong?.objectID == objectID
+        sourceQueue.removeAll { $0.objectID == objectID }
+
+        if isCurrentSong {
+            finishListeningSession(captureRemainder: isPlaying)
+            service.stop()
+            releaseActiveSourceAccess()
+            currentSong = nil
+            queue = []
+            queueIndex = 0
+            UserDefaults.standard.removeObject(forKey: PlaybackMemoryKey.songChecksum)
+            UserDefaults.standard.removeObject(forKey: PlaybackMemoryKey.position)
+            return
+        }
+
+        if let queueItemIndex = queue.firstIndex(where: { $0.objectID == objectID }) {
+            queue.remove(at: queueItemIndex)
+            if queueItemIndex < queueIndex { queueIndex -= 1 }
+            if queue.isEmpty { queueIndex = 0 }
+            else { queueIndex = min(queueIndex, queue.count - 1) }
+        }
+    }
+
     func previous() {
         if currentTime > 3 {
             seek(to: 0)

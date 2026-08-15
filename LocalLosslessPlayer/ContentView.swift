@@ -186,6 +186,7 @@ private struct LibraryHome: View {
     @EnvironmentObject private var player: PlayerViewModel
     @ObservedObject var library: LibraryViewModel
     @State private var sortByTitle = false
+    @State private var songPendingDeletion: Song?
     let openFilesApp: () -> Void
     let scanMusicFolder: () -> Void
 
@@ -236,6 +237,12 @@ private struct LibraryHome: View {
                             SongRow(song: song, current: player.currentSong == song) {
                                 player.play(song, queue: songs)
                             }
+                            onPlayNext: {
+                                player.playNext(song, fallbackQueue: songs)
+                            }
+                            onDelete: {
+                                songPendingDeletion = song
+                            }
                             Divider().overlay(PlayerPalette.line).padding(.leading, 82)
                         }
                     }.padding(.bottom, 24)
@@ -243,6 +250,23 @@ private struct LibraryHome: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .alert("删除歌曲？", isPresented: Binding(
+            get: { songPendingDeletion != nil },
+            set: { if !$0 { songPendingDeletion = nil } }
+        ), presenting: songPendingDeletion) { song in
+            Button("删除", role: .destructive) {
+                let objectID = song.objectID
+                if library.deleteSourceFileAndLibraryRecord(song) {
+                    player.removeFromPlaybackQueue(objectID)
+                }
+                songPendingDeletion = nil
+            }
+            Button("取消", role: .cancel) {
+                songPendingDeletion = nil
+            }
+        } message: { song in
+            Text("将从“文件”App中的音乐文件夹删除“\(song.fileName)”。此操作无法撤销。")
+        }
     }
 }
 
@@ -250,6 +274,8 @@ private struct SongRow: View {
     let song: Song
     let current: Bool
     let action: () -> Void
+    let onPlayNext: () -> Void
+    let onDelete: () -> Void
 
     private var isAvailable: Bool { SourceReference.isAvailable(song) }
 
@@ -269,6 +295,15 @@ private struct SongRow: View {
             Text(timeText(song.duration)).font(.caption.monospacedDigit()).foregroundStyle(PlayerPalette.secondary)
         }
         .padding(.horizontal, 20).frame(height: 70)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(action: onPlayNext) {
+                Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Label("删除歌曲", systemImage: "trash")
+            }
+        }
     }
 }
 
