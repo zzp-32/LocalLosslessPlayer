@@ -143,7 +143,7 @@ final class ListeningHistoryStore: ObservableObject {
         var songValues: [String: SongAccumulator] = [:]
 
         for record in records {
-            let contribution = listenedSeconds(for: record, in: interval)
+            let contribution = listenedSeconds(of: record, in: interval)
             let countedPlay = record.playCountAt.map { interval.contains($0) } ?? false
             guard contribution > 0 || countedPlay else { continue }
 
