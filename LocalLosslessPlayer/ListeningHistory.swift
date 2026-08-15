@@ -133,6 +133,13 @@ final class ListeningHistoryStore: ObservableObject {
         }
     }
 
+    func listenedSecondsByArtist() -> [String: Double] {
+        records.reduce(into: [String: Double]()) { totals, record in
+            let artist = normalizedArtist(record.artist ?? "未知艺术家")
+            totals[artist, default: 0] += record.listenedSeconds
+        }
+    }
+
     func summary(for period: ListeningPeriod, anchor: Date) -> ListeningReportSummary {
         let interval = dateInterval(for: period, anchor: anchor)
         let buckets = chartBuckets(for: period, interval: interval)

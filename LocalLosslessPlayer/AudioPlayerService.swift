@@ -28,6 +28,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private var startFrame: AVAudioFramePosition = 0
     private var scheduleGeneration = 0
     private var progressDisplayLink: CADisplayLink?
+    private var preferredProgressFPS = 1
     private var playbackRate: Double = 1
     private var isMonoAudio = false
 
@@ -90,6 +91,12 @@ final class AudioPlayerService: NSObject, ObservableObject {
         equalizer.globalGain = Float(max(-12, min(12, preamp))) + (loudness ? 2 : 0)
         stereoSpace.wetDryMix = Float(max(0, min(100, stereoExpansion)) * 0.18)
         applyMonoOutputIfNeeded(monoAudio)
+    }
+
+    func setProgressUpdateRate(_ framesPerSecond: Int) {
+        preferredProgressFPS = max(1, min(60, framesPerSecond))
+        progressDisplayLink?.preferredFramesPerSecond = preferredProgressFPS
+        updateProgress()
     }
 
     func load(url: URL, title: String, artist: String?) throws {
@@ -227,7 +234,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private func startProgressUpdates() {
         guard progressDisplayLink == nil else { return }
         let displayLink = CADisplayLink(target: self, selector: #selector(progressDisplayLinkFired(_:)))
-        displayLink.preferredFramesPerSecond = 60
+        displayLink.preferredFramesPerSecond = preferredProgressFPS
         displayLink.add(to: .main, forMode: .common)
         progressDisplayLink = displayLink
     }

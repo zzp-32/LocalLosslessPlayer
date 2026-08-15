@@ -1,6 +1,26 @@
 import SwiftUI
 import UIKit
 
+final class ArtworkImageCache {
+    static let shared = ArtworkImageCache()
+
+    private let cache = NSCache<NSString, UIImage>()
+
+    private init() {
+        cache.totalCostLimit = 48 * 1024 * 1024
+    }
+
+    func image(at path: String?) -> UIImage? {
+        guard let path, !path.isEmpty else { return nil }
+        let key = path as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let image = UIImage(contentsOfFile: path) else { return nil }
+        let pixels = image.size.width * image.size.height * image.scale * image.scale
+        cache.setObject(image, forKey: key, cost: Int(pixels * 4))
+        return image
+    }
+}
+
 enum PlayerPalette {
     static let background = Color(red: 0.025, green: 0.031, blue: 0.029)
     static let surface = Color(red: 0.07, green: 0.08, blue: 0.075)
@@ -28,7 +48,7 @@ struct ArtworkTile: View {
     var body: some View {
         ZStack {
             PlayerPalette.raised
-            if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
+            if let image = ArtworkImageCache.shared.image(at: artworkPath) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Rectangle().fill(color.opacity(0.78)).frame(width: size * 0.67, height: size * 0.67).rotationEffect(.degrees(large ? 12 : 8))

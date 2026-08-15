@@ -905,7 +905,7 @@ struct AlbumArtworkBackground: View {
         GeometryReader { geometry in
             ZStack {
                 PlayerPalette.background
-                if let artworkPath, let image = UIImage(contentsOfFile: artworkPath) {
+                if let image = ArtworkImageCache.shared.image(at: artworkPath) {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
