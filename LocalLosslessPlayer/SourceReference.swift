@@ -3,8 +3,16 @@ import Foundation
 enum SourceReference {
     enum ReferenceError: LocalizedError {
         case unavailable
+        case deletionFailed(String)
 
-        var errorDescription: String? { "文件不可用，请重新定位文件夹。" }
+        var errorDescription: String? {
+            switch self {
+            case .unavailable:
+                return "文件不可用，请重新定位文件夹。"
+            case .deletionFailed(let message):
+                return "无法删除原始文件：\(message)"
+            }
+        }
     }
 
     static func bookmark(for url: URL) throws -> Data {
@@ -49,6 +57,43 @@ enum SourceReference {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         return (try? url.checkResourceIsReachable()) == true
+    }
+
+    static func deleteSourceFile(for song: Song) throws {
+        guard let targetURL = resolveURL(for: song) else { throw ReferenceError.unavailable }
+
+        let accessURL: URL
+        if let rootBookmark = song.sourceRootBookmark,
+           let rootURL = resolveBookmark(rootBookmark)?.url {
+            accessURL = rootURL
+        } else {
+            accessURL = targetURL
+        }
+
+        let scoped = accessURL.startAccessingSecurityScopedResource()
+        defer { if scoped { accessURL.stopAccessingSecurityScopedResource() } }
+
+        guard FileManager.default.fileExists(atPath: targetURL.path) else {
+            throw ReferenceError.unavailable
+        }
+
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        var deletionError: Error?
+        coordinator.coordinate(writingItemAt: targetURL, options: .forDeleting, error: &coordinationError) { coordinatedURL in
+            do {
+                try FileManager.default.removeItem(at: coordinatedURL)
+            } catch {
+                deletionError = error
+            }
+        }
+
+        if let coordinationError {
+            throw ReferenceError.deletionFailed(coordinationError.localizedDescription)
+        }
+        if let deletionError {
+            throw ReferenceError.deletionFailed(deletionError.localizedDescription)
+        }
     }
 
     static func relativePath(of file: URL, in root: URL) -> String? {

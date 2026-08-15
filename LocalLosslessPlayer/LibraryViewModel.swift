@@ -87,9 +87,29 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
-    func delete(_ song: Song) {
-        context.delete(song)
-        do { try context.save(); refresh() }
-        catch { errorMessage = "Delete failed: \(error.localizedDescription)" }
+    func deleteSourceFileAndLibraryRecord(_ song: Song) -> Bool {
+        let artworkPath = song.artworkPath
+        let lyricsPath = song.lyricsPath
+
+        do {
+            try SourceReference.deleteSourceFile(for: song)
+            context.delete(song)
+            try context.save()
+            deleteCacheFile(at: artworkPath, containedIn: StorageConfiguration.artworkRootURL)
+            deleteCacheFile(at: lyricsPath, containedIn: StorageConfiguration.lyricsRootURL)
+            refresh()
+            return true
+        } catch {
+            errorMessage = "删除歌曲失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func deleteCacheFile(at path: String?, containedIn root: URL) {
+        guard let path else { return }
+        let fileURL = URL(fileURLWithPath: path).standardizedFileURL
+        let rootPath = root.standardizedFileURL.path
+        guard fileURL.path.hasPrefix(rootPath + "/") || fileURL.path == rootPath else { return }
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }
