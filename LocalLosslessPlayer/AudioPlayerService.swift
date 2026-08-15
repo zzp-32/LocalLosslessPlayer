@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import QuartzCore
 
 enum AudioPlayerError: Error {
     case noAudioLoaded
@@ -26,7 +27,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private var audioFile: AVAudioFile?
     private var startFrame: AVAudioFramePosition = 0
     private var scheduleGeneration = 0
-    private var progressTimer: Timer?
+    private var progressDisplayLink: CADisplayLink?
     private var playbackRate: Double = 1
     private var isMonoAudio = false
 
@@ -224,22 +225,19 @@ final class AudioPlayerService: NSObject, ObservableObject {
     }
 
     private func startProgressUpdates() {
-        guard progressTimer == nil else { return }
-        progressTimer = Timer.scheduledTimer(
-            timeInterval: 1.0 / 30.0,
-            target: self,
-            selector: #selector(progressTimerFired),
-            userInfo: nil,
-            repeats: true
-        )
+        guard progressDisplayLink == nil else { return }
+        let displayLink = CADisplayLink(target: self, selector: #selector(progressDisplayLinkFired(_:)))
+        displayLink.preferredFramesPerSecond = 60
+        displayLink.add(to: .main, forMode: .common)
+        progressDisplayLink = displayLink
     }
 
     private func stopProgressUpdates() {
-        progressTimer?.invalidate()
-        progressTimer = nil
+        progressDisplayLink?.invalidate()
+        progressDisplayLink = nil
     }
 
-    @objc private func progressTimerFired() {
+    @objc private func progressDisplayLinkFired(_ displayLink: CADisplayLink) {
         updateProgress()
     }
 
