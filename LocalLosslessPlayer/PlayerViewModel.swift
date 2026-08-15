@@ -48,12 +48,13 @@ final class PlayerViewModel: ObservableObject {
         service.onPlaybackFinished = { [weak self] in self?.advanceAfterFinish() }
         service.onNextRequested = { [weak self] in self?.next() }
         service.onPreviousRequested = { [weak self] in self?.previous() }
-        playbackPersistenceTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard self?.isPlaying == true else { return }
-                self?.persistPlaybackSession()
-            }
-        }
+        playbackPersistenceTimer = Timer.scheduledTimer(
+            timeInterval: 5,
+            target: self,
+            selector: #selector(playbackPersistenceTimerFired),
+            userInfo: nil,
+            repeats: true
+        )
     }
 
     func play(_ song: Song, queue: [Song]) {
@@ -192,6 +193,11 @@ final class PlayerViewModel: ObservableObject {
         persistPlaybackSession()
         sleepTimerEnd = nil
         sleepTimer = nil
+    }
+
+    @objc private func playbackPersistenceTimerFired() {
+        guard isPlaying else { return }
+        persistPlaybackSession()
     }
 
     private func advanceAfterFinish() {
