@@ -6,7 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var library: LibraryViewModel
-    @State private var selectedTab = 0
+    @AppStorage("navigation.selectedTab") private var selectedTab = 0
     @State private var showingMenu = false
     @State private var showingSearch = false
 
@@ -41,10 +41,18 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(settings.theme == .light ? .light : .dark)
-        .onAppear { player.apply(settings: settings) }
+        .onAppear {
+            player.apply(settings: settings)
+            player.restoreLastSession(from: library.songs)
+        }
+        .onChange(of: library.songs.count) { _ in
+            player.restoreLastSession(from: library.songs)
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 Task { await library.scanMusicFolder(reportStatus: false) }
+            } else if phase == .inactive || phase == .background {
+                player.persistPlaybackSession()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }

@@ -30,8 +30,16 @@ final class PlayerViewModel: ObservableObject {
     private var queueIndex = 0
     private let service = AudioPlayerService()
     private var sleepTimer: Timer?
+    private var playbackPersistenceTimer: Timer?
     private var activeSourceURL: URL?
     private var activeSourceIsScoped = false
+    private var hasAttemptedSessionRestore = false
+    private var isRestoringSession = false
+
+    private enum PlaybackMemoryKey {
+        static let songChecksum = "playback.lastSongChecksum"
+        static let position = "playback.lastPosition"
+    }
 
     init() {
         service.$isPlaying.assign(to: &$isPlaying)
@@ -40,6 +48,12 @@ final class PlayerViewModel: ObservableObject {
         service.onPlaybackFinished = { [weak self] in self?.advanceAfterFinish() }
         service.onNextRequested = { [weak self] in self?.next() }
         service.onPreviousRequested = { [weak self] in self?.previous() }
+        playbackPersistenceTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard self?.isPlaying == true else { return }
+                self?.persistPlaybackSession()
+            }
+        }
     }
 
     func play(_ song: Song, queue: [Song]) {
@@ -49,10 +63,63 @@ final class PlayerViewModel: ObservableObject {
         loadAndPlay(song)
     }
 
+    func restoreLastSession(from songs: [Song]) {
+        guard !hasAttemptedSessionRestore, currentSong == nil, !songs.isEmpty else { return }
+
+        let defaults = UserDefaults.standard
+        guard let checksum = defaults.string(forKey: PlaybackMemoryKey.songChecksum),
+              let song = songs.first(where: { $0.checksum == checksum }) else {
+            hasAttemptedSessionRestore = true
+            return
+        }
+
+        hasAttemptedSessionRestore = true
+        isRestoringSession = true
+        defer { isRestoringSession = false }
+
+        sourceQueue = songs
+        queue = arrangedQueue(from: songs, keeping: song)
+        queueIndex = queue.firstIndex(of: song) ?? 0
+
+        guard let sourceURL = SourceReference.resolveURL(for: song) else {
+            currentSong = song
+            errorMessage = "文件不可用，请重新定位文件夹。"
+            print("[PlaybackMemory] Restore failed: source unavailable for \(song.title)")
+            return
+        }
+
+        releaseActiveSourceAccess()
+        activeSourceURL = sourceURL
+        activeSourceIsScoped = sourceURL.startAccessingSecurityScopedResource()
+        currentSong = song
+
+        do {
+            try service.load(url: sourceURL, title: song.title, artist: song.artist)
+            let savedPosition = defaults.double(forKey: PlaybackMemoryKey.position)
+            let position = restoredPosition(savedPosition, duration: service.duration)
+            if position > 0 {
+                try service.seek(to: position)
+            }
+            print("[PlaybackMemory] Restored \(song.title) at \(position) seconds (paused)")
+        } catch {
+            releaseActiveSourceAccess()
+            errorMessage = "无法恢复“\(song.title)”：\(error.localizedDescription)"
+            print("[PlaybackMemory] Restore failed: \(error.localizedDescription)")
+        }
+    }
+
+    func persistPlaybackSession() {
+        guard !isRestoringSession, let currentSong else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(currentSong.checksum, forKey: PlaybackMemoryKey.songChecksum)
+        defaults.set(max(0, min(currentTime, duration)), forKey: PlaybackMemoryKey.position)
+    }
+
     func toggle() {
         guard currentSong != nil else { return }
         if isPlaying {
             service.pause()
+            persistPlaybackSession()
         } else {
             do { try service.play() }
             catch { errorMessage = "无法继续播放：\(error.localizedDescription)" }
@@ -60,7 +127,10 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func seek(to value: Double) {
-        do { try service.seek(to: value) }
+        do {
+            try service.seek(to: value)
+            persistPlaybackSession()
+        }
         catch { errorMessage = "无法跳转到指定位置" }
     }
 
@@ -119,6 +189,7 @@ final class PlayerViewModel: ObservableObject {
 
     @objc private func sleepTimerFired() {
         service.pause()
+        persistPlaybackSession()
         sleepTimerEnd = nil
         sleepTimer = nil
     }
@@ -152,7 +223,7 @@ final class PlayerViewModel: ObservableObject {
             errorMessage = "文件不可用，请重新定位文件夹。"
             return
         }
-        if activeSourceIsScoped { activeSourceURL?.stopAccessingSecurityScopedResource() }
+        releaseActiveSourceAccess()
         activeSourceURL = sourceURL
         activeSourceIsScoped = sourceURL.startAccessingSecurityScopedResource()
         currentSong = song
@@ -164,12 +235,26 @@ final class PlayerViewModel: ObservableObject {
                 artist: song.artist
             )
             try service.play()
+            persistPlaybackSession()
             song.lastPlayedAt = Date()
             try song.managedObjectContext?.save()
         } catch {
-            if activeSourceIsScoped { sourceURL.stopAccessingSecurityScopedResource() }
-            activeSourceIsScoped = false
+            releaseActiveSourceAccess()
             errorMessage = "无法播放“\(song.title)”：\(error.localizedDescription)"
         }
+    }
+
+    private func restoredPosition(_ savedPosition: Double, duration: Double) -> Double {
+        guard savedPosition.isFinite, duration.isFinite, duration > 0 else { return 0 }
+        let clamped = max(0, min(savedPosition, duration))
+        return clamped >= max(0, duration - 2) ? 0 : clamped
+    }
+
+    private func releaseActiveSourceAccess() {
+        if activeSourceIsScoped {
+            activeSourceURL?.stopAccessingSecurityScopedResource()
+        }
+        activeSourceURL = nil
+        activeSourceIsScoped = false
     }
 }
