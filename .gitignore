@@ -1,1 +1,6 @@
-base64
+build/
+DerivedData/
+*.ipa
+*.xcuserstate
+xcuserdata/
+.DS_Store
