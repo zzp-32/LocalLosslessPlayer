@@ -896,9 +896,9 @@ struct AlbumArtworkBackground: View {
                         .clipped()
                         .scaleEffect(emphasis ? 1.22 : 1.16)
                         .blur(radius: emphasis ? 42 : 34)
-                        .opacity(emphasis ? 0.48 : 0.34)
+                        .opacity(emphasis ? 0.62 : 0.48)
                 }
-                Color.black.opacity(emphasis ? 0.58 : 0.64)
+                Color.black.opacity(emphasis ? 0.42 : 0.54)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()

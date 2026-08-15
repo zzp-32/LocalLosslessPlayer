@@ -16,7 +16,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            PlayerPalette.background.ignoresSafeArea()
+            AlbumArtworkBackground(artworkPath: player.currentSong?.artworkPath)
             TabView(selection: $selectedTab) {
                 libraryTab.tag(0)
                 livePlayerTab.tag(1)
@@ -68,7 +68,7 @@ struct ContentView: View {
     private var libraryTab: some View {
         NavigationStack {
             ZStack {
-                PlayerPalette.background.ignoresSafeArea()
+                AlbumArtworkBackground(artworkPath: player.currentSong?.artworkPath)
                 LibraryHome(
                     library: library,
                     openFilesApp: openFilesApp,
@@ -249,7 +249,7 @@ private struct SearchView: View {
 
     var body: some View {
         ZStack {
-            PlayerPalette.background.ignoresSafeArea()
+            AlbumArtworkBackground(artworkPath: player.currentSong?.artworkPath)
             VStack(spacing: 0) {
                 searchBar
                 if normalizedQuery.isEmpty {
@@ -382,7 +382,7 @@ private struct ArtistSongsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(PlayerPalette.background)
+        .background(AlbumArtworkBackground(artworkPath: player.currentSong?.artworkPath))
         .navigationTitle(artist.name)
         .navigationBarTitleDisplayMode(.inline)
     }
