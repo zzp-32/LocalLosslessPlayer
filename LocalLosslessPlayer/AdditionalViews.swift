@@ -481,7 +481,10 @@ struct NowPlayingView: View {
                             .environmentObject(player)
                             .transition(.opacity)
                     } else {
-                        InlineLyricsView(onMoreSettings: { showingMoreSettings = true })
+                        InlineLyricsView(
+                            progress: player.playbackProgress,
+                            onMoreSettings: { showingMoreSettings = true }
+                        )
                             .environmentObject(player)
                             .environmentObject(settings)
                             .transition(.opacity)
@@ -589,6 +592,7 @@ private struct InlineLyricsView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
     private let onMoreSettings: () -> Void
+    private let progress: AudioPlayerService
     @State private var lines: [LyricLine] = []
     @State private var currentIndex = 0
     @State private var isFollowingPlayback = true
@@ -600,7 +604,8 @@ private struct InlineLyricsView: View {
         lines.contains { $0.time != nil }
     }
 
-    init(onMoreSettings: @escaping () -> Void = {}) {
+    init(progress: AudioPlayerService, onMoreSettings: @escaping () -> Void = {}) {
+        self.progress = progress
         self.onMoreSettings = onMoreSettings
     }
 
@@ -637,7 +642,10 @@ private struct InlineLyricsView: View {
             }
         }
         .onAppear { reloadLyrics() }
-        .onChange(of: player.currentTime) { _ in syncCurrentLine() }
+        .onReceive(progress.$currentTime) { _ in
+            guard isFollowingPlayback else { return }
+            syncCurrentLine()
+        }
         .onChange(of: player.currentSong?.objectID) { _ in
             isFollowingPlayback = true
             isScrollReady = false
@@ -795,7 +803,7 @@ private struct InlineLyricsView: View {
 
     private func currentLineIndex() -> Int {
         guard !lines.isEmpty, hasTimedLyrics else { return 0 }
-        let lyricTime = player.currentTime + settings.lyricOffset
+        let lyricTime = progress.currentTime + settings.lyricOffset
         return max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
     }
 
@@ -840,19 +848,9 @@ private struct PlaybackControlsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Slider(
-                value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }),
-                in: 0...max(player.duration, 1)
-            )
-            .tint(PlayerPalette.green)
-
-            HStack {
-                Text(timeText(player.currentTime))
-                Spacer()
-                Text(timeText(player.duration))
+            PlaybackProgressView(progress: player.playbackProgress) { value in
+                player.seek(to: value)
             }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(PlayerPalette.secondary)
 
             HStack {
                 Button { player.toggleShuffle() } label: {
@@ -894,6 +892,29 @@ private struct PlaybackControlsView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 10)
+    }
+}
+
+private struct PlaybackProgressView: View {
+    @ObservedObject var progress: AudioPlayerService
+    let seek: (Double) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Slider(
+                value: Binding(get: { progress.currentTime }, set: { seek($0) }),
+                in: 0...max(progress.duration, 1)
+            )
+            .tint(PlayerPalette.green)
+
+            HStack {
+                Text(timeText(progress.currentTime))
+                Spacer()
+                Text(timeText(progress.duration))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(PlayerPalette.secondary)
+        }
     }
 }
 

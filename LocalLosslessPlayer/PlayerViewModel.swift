@@ -18,8 +18,6 @@ enum RepeatMode: CaseIterable {
 final class PlayerViewModel: ObservableObject {
     @Published private(set) var currentSong: Song?
     @Published private(set) var isPlaying = false
-    @Published private(set) var currentTime = 0.0
-    @Published private(set) var duration = 0.0
     @Published private(set) var isShuffled = false
     @Published private(set) var repeatMode: RepeatMode = .off
     @Published private(set) var sleepTimerEnd: Date?
@@ -48,10 +46,12 @@ final class PlayerViewModel: ObservableObject {
         static let position = "playback.lastPosition"
     }
 
+    var playbackProgress: AudioPlayerService { service }
+    var currentTime: Double { service.currentTime }
+    var duration: Double { service.duration }
+
     init() {
         service.$isPlaying.assign(to: &$isPlaying)
-        service.$currentTime.assign(to: &$currentTime)
-        service.$duration.assign(to: &$duration)
         service.onPlaybackFinished = { [weak self] in self?.advanceAfterFinish() }
         service.onNextRequested = { [weak self] in self?.next() }
         service.onPreviousRequested = { [weak self] in self?.previous() }
