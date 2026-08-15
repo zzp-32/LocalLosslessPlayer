@@ -450,12 +450,12 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            PlayerPalette.background.ignoresSafeArea()
-            if displayMode == .lyrics {
-                LyricsArtworkBackground(artworkPath: player.currentSong?.artworkPath)
-                    .id(metadataRevision)
-                    .transition(.opacity)
-            }
+            AlbumArtworkBackground(
+                artworkPath: player.currentSong?.artworkPath,
+                emphasis: displayMode == .lyrics
+            )
+            .id(metadataRevision)
+            .transition(.opacity)
             VStack(spacing: 0) {
                 nowPlayingHeader
 
@@ -880,8 +880,9 @@ private struct PlaybackControlsView: View {
     }
 }
 
-private struct LyricsArtworkBackground: View {
+struct AlbumArtworkBackground: View {
     let artworkPath: String?
+    var emphasis = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -893,11 +894,11 @@ private struct LyricsArtworkBackground: View {
                         .scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .scaleEffect(1.18)
-                        .blur(radius: 42)
-                        .opacity(0.48)
+                        .scaleEffect(emphasis ? 1.22 : 1.16)
+                        .blur(radius: emphasis ? 42 : 34)
+                        .opacity(emphasis ? 0.48 : 0.34)
                 }
-                Color.black.opacity(0.58)
+                Color.black.opacity(emphasis ? 0.58 : 0.64)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()

@@ -9,20 +9,22 @@ struct SoundEffectsCenterView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    dspHeader
-                    responseSection
-                    equalizerSection
-                    toneSection
-                    outputSection
-                    speedSection
-                    currentTrackSection
+            ZStack {
+                AlbumArtworkBackground(artworkPath: player.currentSong?.artworkPath)
+                ScrollView {
+                    VStack(spacing: 18) {
+                        dspHeader
+                        responseSection
+                        equalizerSection
+                        toneSection
+                        outputSection
+                        speedSection
+                        currentTrackSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
             }
-            .background(PlayerPalette.background.ignoresSafeArea())
             .navigationTitle("音效中心")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
