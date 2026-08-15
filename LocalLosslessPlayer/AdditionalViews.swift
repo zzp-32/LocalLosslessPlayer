@@ -7,6 +7,7 @@ struct FunctionMenuView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var library: LibraryViewModel
+    @AppStorage("navigation.selectedTab") private var selectedTab = 0
     @State private var page: MenuPage?
 
     enum MenuPage: String, Identifiable {
@@ -19,6 +20,17 @@ struct FunctionMenuView: View {
             ZStack {
                 PlayerPalette.background.ignoresSafeArea()
                 List {
+                    NavigationLink {
+                        ListeningReportView(library: library) { song in
+                            player.play(song, queue: library.songs)
+                            selectedTab = 1
+                            dismiss()
+                        }
+                    } label: {
+                        menuLabel("chart.bar.xaxis", "听歌报告", showsChevron: false)
+                    }
+                    .listRowBackground(PlayerPalette.surface)
+                    .listRowSeparatorTint(PlayerPalette.line)
                     menuRow("slider.horizontal.3", "EQ 音效调节", .eq)
                     menuRow("timer", timerTitle, .timer)
                     menuRow("gauge.with.dots.needle.bottom.50percent", "播放速度", .speed)
@@ -64,16 +76,20 @@ struct FunctionMenuView: View {
         Button {
             if let action { action() } else { page = destination }
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 17, weight: .medium)).foregroundStyle(PlayerPalette.green).frame(width: 26)
-                Text(title).foregroundStyle(PlayerPalette.primary)
-                Spacer()
-                if destination != nil { Image(systemName: "chevron.right").font(.caption).foregroundStyle(PlayerPalette.secondary) }
-            }
-            .frame(height: 50)
+            menuLabel(icon, title, showsChevron: destination != nil)
         }
         .listRowBackground(PlayerPalette.surface)
         .listRowSeparatorTint(PlayerPalette.line)
+    }
+
+    private func menuLabel(_ icon: String, _ title: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 17, weight: .medium)).foregroundStyle(PlayerPalette.green).frame(width: 26)
+            Text(title).foregroundStyle(PlayerPalette.primary)
+            Spacer()
+            if showsChevron { Image(systemName: "chevron.right").font(.caption).foregroundStyle(PlayerPalette.secondary) }
+        }
+        .frame(height: 50)
     }
 }
 
