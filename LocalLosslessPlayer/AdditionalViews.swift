@@ -703,7 +703,7 @@ private struct InlineLyricsView: View {
                     )
                     .onChange(of: currentIndex) { index in
                         guard isFollowingPlayback, isScrollReady else { return }
-                        withAnimation(.easeOut(duration: 0.12)) {
+                        withAnimation(.easeInOut(duration: 0.26)) {
                             proxy.scrollTo(index, anchor: .center)
                         }
                     }
@@ -723,7 +723,7 @@ private struct InlineLyricsView: View {
                         Button {
                             isFollowingPlayback = true
                             syncCurrentLine()
-                            withAnimation(.easeOut(duration: 0.12)) {
+                            withAnimation(.easeInOut(duration: 0.26)) {
                                 proxy.scrollTo(currentIndex, anchor: .center)
                             }
                         } label: {
@@ -760,6 +760,7 @@ private struct InlineLyricsView: View {
             )
             .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 0.18), value: isCurrent)
     }
 
     private func lineOpacity(at index: Int) -> Double {
@@ -803,7 +804,7 @@ private struct InlineLyricsView: View {
         currentIndex = target
         DispatchQueue.main.async {
             if animated {
-                withAnimation(.easeOut(duration: 0.12)) {
+                withAnimation(.easeInOut(duration: 0.26)) {
                     proxy.scrollTo(target, anchor: .center)
                 }
             } else {
@@ -818,7 +819,7 @@ private struct InlineLyricsView: View {
         player.seek(to: max(0, time - settings.lyricOffset))
         currentIndex = index
         isFollowingPlayback = true
-        withAnimation(.easeOut(duration: 0.12)) {
+        withAnimation(.easeInOut(duration: 0.26)) {
             proxy.scrollTo(index, anchor: .center)
         }
     }
