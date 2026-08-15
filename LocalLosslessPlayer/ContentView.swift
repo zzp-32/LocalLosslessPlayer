@@ -7,7 +7,7 @@ struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var library: LibraryViewModel
     @AppStorage("navigation.selectedTab") private var selectedTab = 0
-    @State private var showingMenu = false
+    @State private var showingReport = false
     @State private var showingSearch = false
 
     init() {
@@ -60,12 +60,6 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
-        .sheet(isPresented: $showingMenu) {
-            FunctionMenuView()
-                .environmentObject(player)
-                .environmentObject(settings)
-                .environmentObject(library)
-        }
         .alert("导入失败", isPresented: messageBinding(for: $library.errorMessage)) {
             Button("好") { library.errorMessage = nil }
         } message: { Text(library.errorMessage ?? "未知错误") }
@@ -89,8 +83,8 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button { showingMenu = true } label: { Image(systemName: "line.3.horizontal") }
-                        .accessibilityLabel("更多功能")
+                    Button { showingReport = true } label: { Image(systemName: "line.3.horizontal") }
+                        .accessibilityLabel("听歌报告")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
@@ -105,6 +99,13 @@ struct ContentView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(PlayerPalette.background, for: .navigationBar)
                     .toolbarColorScheme(.dark, for: .navigationBar)
+            }
+            .navigationDestination(isPresented: $showingReport) {
+                ListeningReportView(library: library) { song in
+                    player.play(song, queue: library.songs)
+                    showingReport = false
+                    selectedTab = 1
+                }
             }
         }
         .tabItem { Image(systemName: "rectangle.stack.fill") }
