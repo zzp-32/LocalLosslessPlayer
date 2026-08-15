@@ -23,6 +23,10 @@ struct ContentView: View {
                 soundEffectsTab.tag(2)
             }
             .tint(PlayerPalette.green)
+            .toolbar(.hidden, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                BottomNavigationBar(selection: $selectedTab)
+            }
             if library.isImporting {
                 VStack(spacing: 12) {
                     ProgressView().tint(PlayerPalette.green)
@@ -131,6 +135,45 @@ struct ContentView: View {
         _ = StorageConfiguration.mediaRootURL
         guard let url = URL(string: "shareddocuments://") else { return }
         UIApplication.shared.open(url)
+    }
+}
+
+private struct BottomNavigationBar: View {
+    @Binding var selection: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            item(index: 0, icon: "rectangle.stack.fill", title: "媒体库")
+            item(index: 1, icon: "play.circle.fill", title: "正在播放")
+            item(index: 2, icon: "slider.horizontal.3", title: "音效中心")
+        }
+        .frame(height: 58)
+        .background(PlayerPalette.background.opacity(0.96))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(PlayerPalette.line)
+                .frame(height: 0.5)
+        }
+        .background(PlayerPalette.background.ignoresSafeArea(edges: .bottom))
+    }
+
+    private func item(index: Int, icon: String, title: String) -> some View {
+        Button {
+            selection = index
+        } label: {
+            ZStack {
+                Color.clear
+                Image(systemName: icon)
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(selection == index ? PlayerPalette.green : PlayerPalette.secondary)
+                    .scaleEffect(selection == index ? 1.06 : 1)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selection == index ? .isSelected : [])
     }
 }
 

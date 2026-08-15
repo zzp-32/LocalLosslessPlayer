@@ -906,5 +906,6 @@ struct AlbumArtworkBackground: View {
             .clipped()
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
