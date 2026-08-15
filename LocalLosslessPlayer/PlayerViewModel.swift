@@ -29,12 +29,19 @@ final class PlayerViewModel: ObservableObject {
     private var queue: [Song] = []
     private var queueIndex = 0
     private let service = AudioPlayerService()
+    private let listeningHistory = ListeningHistoryStore.shared
     private var sleepTimer: Timer?
     private var playbackPersistenceTimer: Timer?
+    private var listeningTimer: Timer?
     private var activeSourceURL: URL?
     private var activeSourceIsScoped = false
     private var hasAttemptedSessionRestore = false
     private var isRestoringSession = false
+    private var listeningPlaybackID: UUID?
+    private var listeningSongChecksum: String?
+    private var listeningSecondsInPlayback = 0.0
+    private var listeningPlayCredited = false
+    private var lastListeningTick: Date?
 
     private enum PlaybackMemoryKey {
         static let songChecksum = "playback.lastSongChecksum"
@@ -52,6 +59,13 @@ final class PlayerViewModel: ObservableObject {
             timeInterval: 5,
             target: self,
             selector: #selector(playbackPersistenceTimerFired),
+            userInfo: nil,
+            repeats: true
+        )
+        listeningTimer = Timer.scheduledTimer(
+            timeInterval: 1,
+            target: self,
+            selector: #selector(listeningTimerFired),
             userInfo: nil,
             repeats: true
         )
@@ -111,25 +125,34 @@ final class PlayerViewModel: ObservableObject {
 
     func persistPlaybackSession() {
         guard !isRestoringSession, let currentSong else { return }
+        captureListeningTime()
         let defaults = UserDefaults.standard
         defaults.set(currentSong.checksum, forKey: PlaybackMemoryKey.songChecksum)
         defaults.set(max(0, min(currentTime, duration)), forKey: PlaybackMemoryKey.position)
+        listeningHistory.flush()
     }
 
     func toggle() {
         guard currentSong != nil else { return }
         if isPlaying {
+            captureListeningTime()
             service.pause()
+            lastListeningTick = nil
             persistPlaybackSession()
         } else {
-            do { try service.play() }
+            do {
+                try service.play()
+                ensureListeningSession(for: currentSong)
+            }
             catch { errorMessage = "无法继续播放：\(error.localizedDescription)" }
         }
     }
 
     func seek(to value: Double) {
         do {
+            captureListeningTime()
             try service.seek(to: value)
+            lastListeningTick = isPlaying ? Date() : nil
             persistPlaybackSession()
         }
         catch { errorMessage = "无法跳转到指定位置" }
@@ -189,7 +212,9 @@ final class PlayerViewModel: ObservableObject {
     }
 
     @objc private func sleepTimerFired() {
+        captureListeningTime()
         service.pause()
+        lastListeningTick = nil
         persistPlaybackSession()
         sleepTimerEnd = nil
         sleepTimer = nil
@@ -200,7 +225,17 @@ final class PlayerViewModel: ObservableObject {
         persistPlaybackSession()
     }
 
+    @objc private func listeningTimerFired() {
+        guard isPlaying, currentSong != nil else {
+            lastListeningTick = nil
+            return
+        }
+        ensureListeningSession(for: currentSong)
+        captureListeningTime()
+    }
+
     private func advanceAfterFinish() {
+        finishListeningSession(captureRemainder: true)
         if repeatMode == .one, let currentSong {
             loadAndPlay(currentSong)
             return
@@ -229,6 +264,7 @@ final class PlayerViewModel: ObservableObject {
             errorMessage = "文件不可用，请重新定位文件夹。"
             return
         }
+        finishListeningSession(captureRemainder: isPlaying)
         releaseActiveSourceAccess()
         activeSourceURL = sourceURL
         activeSourceIsScoped = sourceURL.startAccessingSecurityScopedResource()
@@ -241,6 +277,7 @@ final class PlayerViewModel: ObservableObject {
                 artist: song.artist
             )
             try service.play()
+            beginListeningSession(for: song)
             persistPlaybackSession()
             song.lastPlayedAt = Date()
             try song.managedObjectContext?.save()
@@ -254,6 +291,58 @@ final class PlayerViewModel: ObservableObject {
         guard savedPosition.isFinite, duration.isFinite, duration > 0 else { return 0 }
         let clamped = max(0, min(savedPosition, duration))
         return clamped >= max(0, duration - 2) ? 0 : clamped
+    }
+
+    private func beginListeningSession(for song: Song) {
+        listeningPlaybackID = UUID()
+        listeningSongChecksum = song.checksum
+        listeningSecondsInPlayback = 0
+        listeningPlayCredited = false
+        lastListeningTick = Date()
+    }
+
+    private func ensureListeningSession(for song: Song?) {
+        guard let song else { return }
+        if listeningPlaybackID == nil || listeningSongChecksum != song.checksum {
+            beginListeningSession(for: song)
+        } else if lastListeningTick == nil {
+            lastListeningTick = Date()
+        }
+    }
+
+    private func captureListeningTime(force: Bool = false) {
+        guard let song = currentSong,
+              let playbackID = listeningPlaybackID,
+              listeningSongChecksum == song.checksum,
+              let previousTick = lastListeningTick,
+              isPlaying || force else { return }
+
+        let now = Date()
+        let delta = min(5, max(0, now.timeIntervalSince(previousTick)))
+        lastListeningTick = now
+        guard delta > 0 else { return }
+
+        listeningSecondsInPlayback += delta
+        let threshold = duration > 0 ? min(30, max(1, duration * 0.5)) : 30
+        let shouldCredit = !listeningPlayCredited && listeningSecondsInPlayback >= threshold
+        if shouldCredit { listeningPlayCredited = true }
+        listeningHistory.recordListening(
+            song: song,
+            playbackID: playbackID,
+            seconds: delta,
+            at: now,
+            creditPlay: shouldCredit
+        )
+    }
+
+    private func finishListeningSession(captureRemainder: Bool) {
+        if captureRemainder { captureListeningTime(force: true) }
+        listeningHistory.flush()
+        listeningPlaybackID = nil
+        listeningSongChecksum = nil
+        listeningSecondsInPlayback = 0
+        listeningPlayCredited = false
+        lastListeningTick = nil
     }
 
     private func releaseActiveSourceAccess() {

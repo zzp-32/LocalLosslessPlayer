@@ -270,6 +270,7 @@ private struct SongRow: View {
 private struct SearchView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @ObservedObject var library: LibraryViewModel
+    @ObservedObject private var listeningHistory = ListeningHistoryStore.shared
     @State private var query = ""
 
     private var normalizedQuery: String {
@@ -292,10 +293,16 @@ private struct SearchView: View {
         .map { name, songs in
             ArtistGroup(
                 name: name,
-                songs: songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                songs: songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending },
+                listenedSeconds: listeningHistory.totalListenedSeconds(forArtist: name)
             )
         }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        .sorted {
+            if $0.listenedSeconds != $1.listenedSeconds {
+                return $0.listenedSeconds > $1.listenedSeconds
+            }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -344,12 +351,17 @@ private struct SearchView: View {
         } else {
             List {
                 Section {
-                    ForEach(artists) { artist in
+                    ForEach(artists.indices, id: \.self) { index in
+                        let artist = artists[index]
                         NavigationLink {
                             ArtistSongsView(artist: artist)
                                 .environmentObject(player)
                         } label: {
                             HStack(spacing: 12) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(index < 3 ? PlayerPalette.green : PlayerPalette.secondary)
+                                    .frame(width: 20)
                                 ArtworkTile(
                                     title: artist.name,
                                     size: 48,
@@ -360,7 +372,7 @@ private struct SearchView: View {
                                         .font(.body.weight(.medium))
                                         .foregroundStyle(PlayerPalette.primary)
                                         .lineLimit(1)
-                                    Text("\(artist.songs.count) 首歌曲")
+                                    Text(artistSubtitle(artist))
                                         .font(.caption)
                                         .foregroundStyle(PlayerPalette.secondary)
                                 }
@@ -371,7 +383,7 @@ private struct SearchView: View {
                         .listRowSeparatorTint(PlayerPalette.line)
                     }
                 } header: {
-                    Text("歌手")
+                    Text("歌手 · 按听歌时长排行")
                         .font(.headline)
                         .foregroundStyle(PlayerPalette.primary)
                         .textCase(nil)
@@ -410,11 +422,18 @@ private struct SearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private func artistSubtitle(_ artist: ArtistGroup) -> String {
+        guard artist.listenedSeconds >= 1 else { return "\(artist.songs.count) 首歌曲" }
+        let minutes = max(1, Int(artist.listenedSeconds / 60))
+        return "\(artist.songs.count) 首歌曲 · 已听 \(minutes) 分钟"
+    }
 }
 
 private struct ArtistGroup: Identifiable {
     let name: String
     let songs: [Song]
+    let listenedSeconds: Double
     var id: String { name }
 }
 
