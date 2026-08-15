@@ -335,6 +335,10 @@ final class PlayerViewModel: ObservableObject {
         )
     }
 
+    func setPlayerScreenVisible(_ isVisible: Bool) {
+        service.setProgressUpdateRate(isVisible ? 60 : 1)
+    }
+
     private func finishListeningSession(captureRemainder: Bool) {
         if captureRemainder { captureListeningTime(force: true) }
         listeningHistory.flush()

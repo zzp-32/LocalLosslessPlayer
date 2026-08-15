@@ -47,7 +47,11 @@ struct ContentView: View {
         .preferredColorScheme(settings.theme == .light ? .light : .dark)
         .onAppear {
             player.apply(settings: settings)
+            player.setPlayerScreenVisible(selectedTab == 1)
             player.restoreLastSession(from: library.songs)
+        }
+        .onChange(of: selectedTab) { tab in
+            player.setPlayerScreenVisible(tab == 1)
         }
         .onChange(of: library.songs.count) { _ in
             player.restoreLastSession(from: library.songs)
@@ -288,14 +292,15 @@ private struct SearchView: View {
     }
 
     private var artists: [ArtistGroup] {
-        Dictionary(grouping: library.songs) { song in
+        let listeningTotals = listeningHistory.listenedSecondsByArtist()
+        return Dictionary(grouping: library.songs) { song in
             song.artist.nilIfEmpty ?? "未知艺术家"
         }
         .map { name, songs in
             ArtistGroup(
                 name: name,
                 songs: songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending },
-                listenedSeconds: listeningHistory.totalListenedSeconds(forArtist: name)
+                listenedSeconds: listeningTotals[normalizedArtist(name)] ?? 0
             )
         }
         .sorted {
@@ -351,8 +356,7 @@ private struct SearchView: View {
             emptyState(icon: "person.2", title: "还没有已导入的歌手")
         } else {
             List {
-                Section {
-                    ForEach(artists.indices, id: \.self) { index in
+                ForEach(artists.indices, id: \.self) { index in
                         let artist = artists[index]
                         NavigationLink {
                             ArtistSongsView(artist: artist)
@@ -382,12 +386,6 @@ private struct SearchView: View {
                         }
                         .listRowBackground(PlayerPalette.background)
                         .listRowSeparatorTint(PlayerPalette.line)
-                    }
-                } header: {
-                    Text("歌手 · 按听歌时长排行")
-                        .font(.headline)
-                        .foregroundStyle(PlayerPalette.primary)
-                        .textCase(nil)
                 }
             }
             .listStyle(.plain)
@@ -428,6 +426,10 @@ private struct SearchView: View {
         guard artist.listenedSeconds >= 1 else { return "\(artist.songs.count) 首歌曲" }
         let minutes = max(1, Int(artist.listenedSeconds / 60))
         return "\(artist.songs.count) 首歌曲 · 已听 \(minutes) 分钟"
+    }
+
+    private func normalizedArtist(_ artist: String) -> String {
+        artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
