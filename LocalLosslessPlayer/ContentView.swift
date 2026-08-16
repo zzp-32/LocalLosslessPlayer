@@ -185,20 +185,36 @@ private struct BottomNavigationBar: View {
 private struct LibraryHome: View {
     @EnvironmentObject private var player: PlayerViewModel
     @ObservedObject var library: LibraryViewModel
-    @State private var sortByTitle = false
+    @State private var sortByTitle = true
     @State private var songPendingDeletion: Song?
     let openFilesApp: () -> Void
     let scanMusicFolder: () -> Void
 
-    private var songs: [Song] {
-        sortByTitle
-            ? library.songs.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            : library.songs
+    private var alphabeticSections: [SongAlphabetSection] {
+        var grouped: [String: [(song: Song, sortKey: String)]] = [:]
+        for song in library.songs {
+            let sortKey = SongTitleSorting.latinTitle(song.title)
+            let section = SongTitleSorting.initial(forLatinTitle: sortKey)
+            grouped[section, default: []].append((song, sortKey))
+        }
+        return grouped.keys.sorted { SongTitleSorting.sectionOrder($0, before: $1) }.compactMap { key in
+            guard let values = grouped[key] else { return nil }
+            return SongAlphabetSection(
+                key: key,
+                songs: values.sorted {
+                    $0.sortKey.localizedStandardCompare($1.sortKey) == .orderedAscending
+                }.map(\.song)
+            )
+        }
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+        let sections = alphabeticSections
+        let orderedSongs = sortByTitle ? sections.flatMap(\.songs) : library.songs
+
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("本地音乐").font(.system(size: 34, weight: .bold)).foregroundStyle(PlayerPalette.primary)
@@ -225,27 +241,47 @@ private struct LibraryHome: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 8)
 
-                if songs.isEmpty {
+                if orderedSongs.isEmpty {
                     VStack(spacing: 14) {
                         Image(systemName: "waveform").font(.system(size: 38)).foregroundStyle(PlayerPalette.green)
                         Text("还没有音乐").font(.headline).foregroundStyle(PlayerPalette.primary)
                         Button("打开“文件”App", action: openFilesApp).buttonStyle(.borderedProminent).tint(PlayerPalette.green)
                     }.frame(maxWidth: .infinity).padding(.top, 100)
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(songs, id: \.objectID) { song in
-                            SongRow(song: song, current: player.currentSong == song) {
-                                player.play(song, queue: songs)
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            if sortByTitle {
+                                ForEach(sections) { section in
+                                    Text(section.key)
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(PlayerPalette.green)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 20)
+                                        .padding(.top, 16)
+                                        .padding(.bottom, 6)
+                                        .id("library-section-\(section.key)")
+                                    ForEach(section.songs, id: \.objectID) { song in
+                                        songRow(song, queue: orderedSongs)
+                                        Divider().overlay(PlayerPalette.line).padding(.leading, 82)
+                                    }
+                                }
+                            } else {
+                                ForEach(orderedSongs, id: \.objectID) { song in
+                                    songRow(song, queue: orderedSongs)
+                                    Divider().overlay(PlayerPalette.line).padding(.leading, 82)
+                                }
                             }
-                            onPlayNext: {
-                                player.playNext(song, fallbackQueue: songs)
-                            }
-                            onDelete: {
-                                songPendingDeletion = song
-                            }
-                            Divider().overlay(PlayerPalette.line).padding(.leading, 82)
                         }
-                    }.padding(.bottom, 24)
+                        .padding(.bottom, 24)
+                    }
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if sortByTitle, !sections.isEmpty {
+                    AlphabetIndexView(keys: sections.map(\.key)) { key in
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo("library-section-\(key)", anchor: .top)
+                        }
+                    }
                 }
             }
         }
@@ -267,6 +303,64 @@ private struct LibraryHome: View {
         } message: { song in
             Text("将从“文件”App中的音乐文件夹删除“\(song.fileName)”。此操作无法撤销。")
         }
+    }
+
+    @ViewBuilder
+    private func songRow(_ song: Song, queue: [Song]) -> some View {
+        SongRow(song: song, current: player.currentSong == song) {
+            player.play(song, queue: queue)
+        } onPlayNext: {
+            player.playNext(song, fallbackQueue: queue)
+        } onDelete: {
+            songPendingDeletion = song
+        }
+    }
+}
+
+private struct SongAlphabetSection: Identifiable {
+    let key: String
+    let songs: [Song]
+    var id: String { key }
+}
+
+private enum SongTitleSorting {
+    static func latinTitle(_ title: String) -> String {
+        let mutable = NSMutableString(string: title)
+        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
+        CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
+        return (mutable as String).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func initial(forLatinTitle title: String) -> String {
+        guard let scalar = title.uppercased().unicodeScalars.first else { return "#" }
+        return scalar.value >= 65 && scalar.value <= 90 ? String(scalar) : "#"
+    }
+
+    static func sectionOrder(_ lhs: String, before rhs: String) -> Bool {
+        if lhs == "#" { return false }
+        if rhs == "#" { return true }
+        return lhs < rhs
+    }
+}
+
+private struct AlphabetIndexView: View {
+    let keys: [String]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 1) {
+            ForEach(keys, id: \.self) { key in
+                Button(key) { onSelect(key) }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(PlayerPalette.green)
+                    .frame(width: 18, height: 15)
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 3)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.trailing, 4)
     }
 }
 
