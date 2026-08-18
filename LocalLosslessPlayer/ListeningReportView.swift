@@ -9,10 +9,7 @@ struct ListeningReportView: View {
 
     @State private var period: ListeningPeriod = .day
     @State private var anchor = Date()
-
-    private var summary: ListeningReportSummary {
-        history.summary(for: period, anchor: anchor)
-    }
+    @State private var summary = ListeningReportSummary.empty(for: .day, anchor: Date())
 
     var body: some View {
         ZStack {
@@ -35,6 +32,11 @@ struct ListeningReportView: View {
         .toolbarBackground(PlayerPalette.background.opacity(0.94), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .preferredColorScheme(.dark)
+        .task(id: ReportRequest(period: period, anchor: anchor, revision: history.revision)) {
+            let result = await history.summaryAsync(for: period, anchor: anchor)
+            guard !Task.isCancelled else { return }
+            summary = result
+        }
     }
 
     private var periodPicker: some View {
@@ -215,9 +217,13 @@ struct ListeningReportView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 38)
             } else {
+                let songLookup = Dictionary(
+                    library.songs.map { ($0.checksum, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 VStack(spacing: 0) {
                     ForEach(summary.songs) { ranking in
-                        rankingRow(ranking)
+                        rankingRow(ranking, song: songLookup[ranking.checksum])
                         if ranking.id != summary.songs.last?.id {
                             Divider().overlay(PlayerPalette.line).padding(.leading, 68)
                         }
@@ -230,8 +236,7 @@ struct ListeningReportView: View {
         }
     }
 
-    private func rankingRow(_ ranking: ListeningSongRanking) -> some View {
-        let song = library.songs.first(where: { $0.checksum == ranking.checksum })
+    private func rankingRow(_ ranking: ListeningSongRanking, song: Song?) -> some View {
         return Button {
             guard let song else { return }
             onPlay(song)
@@ -361,5 +366,27 @@ struct ListeningReportView: View {
         let hours = minutes / 60
         let remainder = minutes % 60
         return remainder == 0 ? "\(hours) 小时" : "\(hours)小时 \(remainder)分"
+    }
+}
+
+private struct ReportRequest: Hashable {
+    let period: ListeningPeriod
+    let anchor: Date
+    let revision: Int
+}
+
+private extension ListeningReportSummary {
+    static func empty(for period: ListeningPeriod, anchor: Date) -> ListeningReportSummary {
+        let interval = Calendar.autoupdatingCurrent.dateInterval(of: period.calendarComponent, for: anchor)
+            ?? DateInterval(start: anchor, duration: 1)
+        return ListeningReportSummary(
+            interval: interval,
+            totalListenedSeconds: 0,
+            playbackSessions: 0,
+            uniqueSongs: 0,
+            validPlayCount: 0,
+            chartPoints: [],
+            songs: []
+        )
     }
 }

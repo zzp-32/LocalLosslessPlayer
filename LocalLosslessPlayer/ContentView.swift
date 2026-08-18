@@ -64,9 +64,16 @@ struct ContentView: View {
             } else if phase == .inactive || phase == .background {
                 player.setAppInBackground(true)
                 player.persistPlaybackSession()
+                settings.flush()
+                MetadataMatcher.shared.cancelPending()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in library.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { _ in
+            library.scheduleMetadataRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            Task { await ArtworkImageCache.shared.removeAll() }
+        }
         .alert("导入失败", isPresented: messageBinding(for: $library.errorMessage)) {
             Button("好") { library.errorMessage = nil }
         } message: { Text(library.errorMessage ?? "未知错误") }
@@ -193,27 +200,9 @@ private struct LibraryHome: View {
     let openFilesApp: () -> Void
     let scanMusicFolder: () -> Void
 
-    private var alphabeticSections: [SongAlphabetSection] {
-        var grouped: [String: [(song: Song, sortKey: String)]] = [:]
-        for song in library.songs {
-            let sortKey = SongTitleSorting.latinTitle(song.title)
-            let section = SongTitleSorting.initial(forLatinTitle: sortKey)
-            grouped[section, default: []].append((song, sortKey))
-        }
-        return grouped.keys.sorted { SongTitleSorting.sectionOrder($0, before: $1) }.compactMap { key in
-            guard let values = grouped[key] else { return nil }
-            return SongAlphabetSection(
-                key: key,
-                songs: values.sorted {
-                    $0.sortKey.localizedStandardCompare($1.sortKey) == .orderedAscending
-                }.map(\.song)
-            )
-        }
-    }
-
     var body: some View {
-        let sections = alphabeticSections
-        let orderedSongs = sortByTitle ? sections.flatMap(\.songs) : library.songs
+        let sections = library.alphabeticSections
+        let orderedSongs = sortByTitle && !sections.isEmpty ? sections.flatMap(\.songs) : library.songs
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -310,39 +299,13 @@ private struct LibraryHome: View {
 
     @ViewBuilder
     private func songRow(_ song: Song, queue: [Song]) -> some View {
-        SongRow(song: song, current: player.currentSong == song) {
+        SongRow(song: song, current: player.currentSong == song, isAvailable: library.isAvailable(song)) {
             player.play(song, queue: queue)
         } onPlayNext: {
             player.playNext(song, fallbackQueue: queue)
         } onDelete: {
             songPendingDeletion = song
         }
-    }
-}
-
-private struct SongAlphabetSection: Identifiable {
-    let key: String
-    let songs: [Song]
-    var id: String { key }
-}
-
-private enum SongTitleSorting {
-    static func latinTitle(_ title: String) -> String {
-        let mutable = NSMutableString(string: title)
-        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
-        CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
-        return (mutable as String).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func initial(forLatinTitle title: String) -> String {
-        guard let scalar = title.uppercased().unicodeScalars.first else { return "#" }
-        return scalar.value >= 65 && scalar.value <= 90 ? String(scalar) : "#"
-    }
-
-    static func sectionOrder(_ lhs: String, before rhs: String) -> Bool {
-        if lhs == "#" { return false }
-        if rhs == "#" { return true }
-        return lhs < rhs
     }
 }
 
@@ -370,11 +333,10 @@ private struct AlphabetIndexView: View {
 private struct SongRow: View {
     let song: Song
     let current: Bool
+    let isAvailable: Bool
     let action: () -> Void
     let onPlayNext: () -> Void
     let onDelete: () -> Void
-
-    private var isAvailable: Bool { SourceReference.isAvailable(song) }
 
     var body: some View {
         HStack(spacing: 12) {

@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-struct ListeningRecord: Codable, Identifiable {
+struct ListeningRecord: Codable, Identifiable, Sendable {
     let id: UUID
     let playbackID: UUID
     let songChecksum: String
@@ -15,7 +15,7 @@ struct ListeningRecord: Codable, Identifiable {
     var playCountAt: Date?
 }
 
-enum ListeningPeriod: String, CaseIterable, Identifiable {
+enum ListeningPeriod: String, CaseIterable, Identifiable, Sendable {
     case day = "日"
     case week = "周"
     case month = "月"
@@ -33,13 +33,13 @@ enum ListeningPeriod: String, CaseIterable, Identifiable {
     }
 }
 
-struct ListeningChartPoint: Identifiable {
+struct ListeningChartPoint: Identifiable, Sendable {
     let date: Date
     let listenedSeconds: Double
     var id: Date { date }
 }
 
-struct ListeningSongRanking: Identifiable {
+struct ListeningSongRanking: Identifiable, Sendable {
     let checksum: String
     let title: String
     let artist: String?
@@ -50,7 +50,7 @@ struct ListeningSongRanking: Identifiable {
     var id: String { checksum }
 }
 
-struct ListeningReportSummary {
+struct ListeningReportSummary: Sendable {
     let interval: DateInterval
     let totalListenedSeconds: Double
     let playbackSessions: Int
@@ -64,10 +64,11 @@ struct ListeningReportSummary {
 final class ListeningHistoryStore: ObservableObject {
     static let shared = ListeningHistoryStore()
 
-    @Published private(set) var records: [ListeningRecord] = []
+    @Published private(set) var revision = 0
+    private var records: [ListeningRecord] = []
 
-    private let calendar = Calendar.autoupdatingCurrent
     private let fileURL: URL
+    private let saveQueue = DispatchQueue(label: "LocalLosslessPlayer.ListeningHistory", qos: .utility)
     private var saveTimer: Timer?
 
     private init() {
@@ -88,7 +89,7 @@ final class ListeningHistoryStore: ObservableObject {
         if let index = records.indices.last,
            records[index].playbackID == playbackID,
            records[index].songChecksum == song.checksum,
-           timestamp.timeIntervalSince(records[index].endedAt) < 3 {
+           timestamp.timeIntervalSince(records[index].endedAt) < 8 {
             records[index].endedAt = timestamp
             records[index].listenedSeconds += delta
             records[index].title = song.title
@@ -141,88 +142,14 @@ final class ListeningHistoryStore: ObservableObject {
     }
 
     func summary(for period: ListeningPeriod, anchor: Date) -> ListeningReportSummary {
-        let interval = dateInterval(for: period, anchor: anchor)
-        let buckets = chartBuckets(for: period, interval: interval)
-        var bucketSeconds = Array(repeating: 0.0, count: buckets.count)
-        var totalSeconds = 0.0
-        var playbackIDs = Set<UUID>()
-        var validPlayCount = 0
-        var songValues: [String: SongAccumulator] = [:]
-
-        for record in records {
-            let contribution = listenedSeconds(of: record, in: interval)
-            let countedPlay = record.playCountAt.map { interval.contains($0) } ?? false
-            guard contribution > 0 || countedPlay else { continue }
-
-            if contribution > 0 {
-                totalSeconds += contribution
-                playbackIDs.insert(record.playbackID)
-            }
-            if countedPlay { validPlayCount += 1 }
-
-            var song = songValues[record.songChecksum] ?? SongAccumulator(record: record)
-            song.listenedSeconds += contribution
-            if countedPlay { song.playCount += 1 }
-            songValues[record.songChecksum] = song
-
-            for index in buckets.indices {
-                bucketSeconds[index] += listenedSeconds(of: record, in: buckets[index])
-            }
-        }
-
-        let chartPoints = zip(buckets, bucketSeconds).map {
-            ListeningChartPoint(date: $0.0.start, listenedSeconds: $0.1)
-        }
-        let songs = songValues.values
-            .filter { $0.playCount > 0 }
-            .map { $0.ranking }
-            .sorted {
-                if $0.playCount != $1.playCount { return $0.playCount > $1.playCount }
-                if $0.listenedSeconds != $1.listenedSeconds { return $0.listenedSeconds > $1.listenedSeconds }
-                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-            }
-
-        return ListeningReportSummary(
-            interval: interval,
-            totalListenedSeconds: totalSeconds,
-            playbackSessions: playbackIDs.count,
-            uniqueSongs: songValues.values.filter { $0.listenedSeconds > 0 }.count,
-            validPlayCount: validPlayCount,
-            chartPoints: chartPoints,
-            songs: songs
-        )
+        ListeningReportCalculator.summary(records: records, period: period, anchor: anchor)
     }
 
-    private func dateInterval(for period: ListeningPeriod, anchor: Date) -> DateInterval {
-        calendar.dateInterval(of: period.calendarComponent, for: anchor)
-            ?? DateInterval(start: anchor, duration: 1)
-    }
-
-    private func chartBuckets(for period: ListeningPeriod, interval: DateInterval) -> [DateInterval] {
-        let component: Calendar.Component
-        switch period {
-        case .day: component = .hour
-        case .week, .month: component = .day
-        case .year: component = .month
-        }
-
-        var buckets: [DateInterval] = []
-        var cursor = interval.start
-        while cursor < interval.end,
-              let next = calendar.date(byAdding: component, value: 1, to: cursor) {
-            buckets.append(DateInterval(start: cursor, end: min(next, interval.end)))
-            cursor = next
-        }
-        return buckets
-    }
-
-    private func listenedSeconds(of record: ListeningRecord, in interval: DateInterval) -> Double {
-        let overlapStart = max(record.startedAt, interval.start)
-        let overlapEnd = min(record.endedAt, interval.end)
-        guard overlapEnd > overlapStart else { return 0 }
-        let recordDuration = max(0.001, record.endedAt.timeIntervalSince(record.startedAt))
-        let overlap = overlapEnd.timeIntervalSince(overlapStart)
-        return record.listenedSeconds * min(1, overlap / recordDuration)
+    func summaryAsync(for period: ListeningPeriod, anchor: Date) async -> ListeningReportSummary {
+        let snapshot = records
+        return await Task.detached(priority: .userInitiated) {
+            ListeningReportCalculator.summary(records: snapshot, period: period, anchor: anchor)
+        }.value
     }
 
     private func normalizedArtist(_ value: String) -> String {
@@ -232,7 +159,7 @@ final class ListeningHistoryStore: ObservableObject {
     private func scheduleSave() {
         guard saveTimer == nil else { return }
         saveTimer = Timer.scheduledTimer(
-            timeInterval: 5,
+            timeInterval: 15,
             target: self,
             selector: #selector(saveTimerFired),
             userInfo: nil,
@@ -246,24 +173,36 @@ final class ListeningHistoryStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            records = try decoder.decode([ListeningRecord].self, from: data)
-        } catch {
-            print("[ListeningHistory] Load failed: \(error.localizedDescription)")
+        let target = fileURL
+        saveQueue.async { [weak self] in
+            guard let data = try? Data(contentsOf: target) else { return }
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let loaded = try decoder.decode([ListeningRecord].self, from: data)
+                DispatchQueue.main.async {
+                    self?.records = loaded
+                    self?.revision &+= 1
+                }
+            } catch {
+                print("[ListeningHistory] Load failed: \(error.localizedDescription)")
+            }
         }
     }
 
     private func save() {
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(records)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            print("[ListeningHistory] Save failed: \(error.localizedDescription)")
+        let snapshot = records
+        let target = fileURL
+        saveQueue.async { [weak self] in
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(snapshot)
+                try data.write(to: target, options: .atomic)
+                DispatchQueue.main.async { self?.revision &+= 1 }
+            } catch {
+                print("[ListeningHistory] Save failed: \(error.localizedDescription)")
+            }
         }
     }
 }
@@ -295,5 +234,84 @@ private struct SongAccumulator {
             playCount: playCount,
             listenedSeconds: listenedSeconds
         )
+    }
+}
+
+private enum ListeningReportCalculator {
+    static func summary(records: [ListeningRecord], period: ListeningPeriod, anchor: Date) -> ListeningReportSummary {
+        let calendar = Calendar.autoupdatingCurrent
+        let interval = calendar.dateInterval(of: period.calendarComponent, for: anchor)
+            ?? DateInterval(start: anchor, duration: 1)
+        let buckets = chartBuckets(for: period, interval: interval, calendar: calendar)
+        var bucketSeconds = Array(repeating: 0.0, count: buckets.count)
+        var totalSeconds = 0.0
+        var playbackIDs = Set<UUID>()
+        var validPlayCount = 0
+        var songValues: [String: SongAccumulator] = [:]
+
+        for record in records {
+            let contribution = listenedSeconds(of: record, in: interval)
+            let countedPlay = record.playCountAt.map { interval.contains($0) } ?? false
+            guard contribution > 0 || countedPlay else { continue }
+            if contribution > 0 {
+                totalSeconds += contribution
+                playbackIDs.insert(record.playbackID)
+            }
+            if countedPlay { validPlayCount += 1 }
+            var song = songValues[record.songChecksum] ?? SongAccumulator(record: record)
+            song.listenedSeconds += contribution
+            if countedPlay { song.playCount += 1 }
+            songValues[record.songChecksum] = song
+            for index in buckets.indices {
+                bucketSeconds[index] += listenedSeconds(of: record, in: buckets[index])
+            }
+        }
+
+        let chartPoints = zip(buckets, bucketSeconds).map {
+            ListeningChartPoint(date: $0.0.start, listenedSeconds: $0.1)
+        }
+        let songs = songValues.values.filter { $0.playCount > 0 }.map(\.ranking).sorted {
+            if $0.playCount != $1.playCount { return $0.playCount > $1.playCount }
+            if $0.listenedSeconds != $1.listenedSeconds { return $0.listenedSeconds > $1.listenedSeconds }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+        return ListeningReportSummary(
+            interval: interval,
+            totalListenedSeconds: totalSeconds,
+            playbackSessions: playbackIDs.count,
+            uniqueSongs: songValues.values.filter { $0.listenedSeconds > 0 }.count,
+            validPlayCount: validPlayCount,
+            chartPoints: chartPoints,
+            songs: songs
+        )
+    }
+
+    private static func chartBuckets(
+        for period: ListeningPeriod,
+        interval: DateInterval,
+        calendar: Calendar
+    ) -> [DateInterval] {
+        let component: Calendar.Component
+        switch period {
+        case .day: component = .hour
+        case .week, .month: component = .day
+        case .year: component = .month
+        }
+        var buckets: [DateInterval] = []
+        var cursor = interval.start
+        while cursor < interval.end,
+              let next = calendar.date(byAdding: component, value: 1, to: cursor) {
+            buckets.append(DateInterval(start: cursor, end: min(next, interval.end)))
+            cursor = next
+        }
+        return buckets
+    }
+
+    private static func listenedSeconds(of record: ListeningRecord, in interval: DateInterval) -> Double {
+        let overlapStart = max(record.startedAt, interval.start)
+        let overlapEnd = min(record.endedAt, interval.end)
+        guard overlapEnd > overlapStart else { return 0 }
+        let recordDuration = max(0.001, record.endedAt.timeIntervalSince(record.startedAt))
+        return record.listenedSeconds * min(1, overlapEnd.timeIntervalSince(overlapStart) / recordDuration)
     }
 }

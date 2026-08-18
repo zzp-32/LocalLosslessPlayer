@@ -32,6 +32,8 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private var playbackRate: Double = 1
     private var isMonoAudio = false
     private var audioSessionIsActive = false
+    private var observerTokens: [NSObjectProtocol] = []
+    private var wasPlayingBeforeInterruption = false
 
     override init() {
         super.init()
@@ -67,6 +69,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
         engine.connect(balanceMixer, to: engine.mainMixerNode, format: nil)
         configureAudioSession()
         configureRemoteCommands()
+        configureAudioNotifications()
     }
 
     func applySettings(
@@ -91,6 +94,12 @@ final class AudioPlayerService: NSObject, ObservableObject {
         timePitch.rate = Float(playbackRate)
         equalizer.globalGain = Float(max(-12, min(12, preamp))) + (loudness ? 2 : 0)
         stereoSpace.wetDryMix = Float(max(0, min(100, stereoExpansion)) * 0.18)
+        equalizer.bypass = gains.allSatisfy { abs($0) < 0.001 }
+            && abs(preamp) < 0.001
+            && !loudness
+        toneEqualizer.bypass = abs(bassBoost) < 0.001 && abs(trebleBoost) < 0.001
+        timePitch.bypass = abs(playbackRate - 1) < 0.001
+        stereoSpace.bypass = abs(stereoExpansion) < 0.001
         applyMonoOutputIfNeeded(monoAudio)
     }
 
@@ -191,6 +200,99 @@ final class AudioPlayerService: NSObject, ObservableObject {
         try? session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
     }
 
+    private func configureAudioNotifications() {
+        let center = NotificationCenter.default
+        observerTokens.append(center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in self?.handleInterruption(notification) }
+        })
+        observerTokens.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in self?.handleRouteChange(notification) }
+        })
+        observerTokens.append(center.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.recoverAfterMediaServicesReset() }
+        })
+        observerTokens.append(center.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in try? self?.restartEngineIfNeeded() }
+        })
+    }
+
+    private func handleInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        switch type {
+        case .began:
+            wasPlayingBeforeInterruption = isPlaying
+            playerNode.pause()
+            engine.pause()
+            isPlaying = false
+            stopProgressUpdates()
+            updatePlaybackState()
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
+            guard shouldResume, wasPlayingBeforeInterruption else { return }
+            do {
+                try activateAudioSession()
+                try restartEngineIfNeeded()
+                playerNode.play()
+                isPlaying = true
+                startProgressUpdates()
+                updatePlaybackState()
+            } catch {
+                isPlaying = false
+            }
+            wasPlayingBeforeInterruption = false
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleRouteChange(_ notification: Notification) {
+        guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable,
+              isPlaying else { return }
+        pause()
+    }
+
+    private func recoverAfterMediaServicesReset() {
+        let shouldResume = isPlaying || wasPlayingBeforeInterruption
+        configureAudioSession()
+        guard shouldResume else { return }
+        do {
+            try activateAudioSession()
+            try restartEngineIfNeeded()
+            playerNode.play()
+            isPlaying = true
+            startProgressUpdates()
+            updatePlaybackState()
+        } catch {
+            isPlaying = false
+        }
+    }
+
+    @discardableResult
+    private func restartEngineIfNeeded() throws -> Bool {
+        guard !engine.isRunning else { return false }
+        try engine.start()
+        return true
+    }
+
     private func activateAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setActive(true)
@@ -278,6 +380,12 @@ final class AudioPlayerService: NSObject, ObservableObject {
               let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else { return }
         let renderedFrame = startFrame + playerTime.sampleTime
-        currentTime = min(duration, Double(renderedFrame) / file.fileFormat.sampleRate)
+        let nextTime = min(duration, Double(renderedFrame) / file.fileFormat.sampleRate)
+        if abs(nextTime - currentTime) >= 0.002 { currentTime = nextTime }
+    }
+
+    deinit {
+        progressDisplayLink?.invalidate()
+        observerTokens.forEach(NotificationCenter.default.removeObserver)
     }
 }

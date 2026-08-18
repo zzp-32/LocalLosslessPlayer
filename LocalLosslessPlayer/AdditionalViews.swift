@@ -768,7 +768,6 @@ private struct InlineLyricsView: View {
             )
             .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
-            .animation(.easeInOut(duration: 0.18), value: isCurrent)
     }
 
     private func lineOpacity(at index: Int) -> Double {
@@ -804,7 +803,20 @@ private struct InlineLyricsView: View {
     private func currentLineIndex() -> Int {
         guard !lines.isEmpty, hasTimedLyrics else { return 0 }
         let lyricTime = progress.currentTime + settings.lyricOffset
-        return max(0, lines.lastIndex(where: { ($0.time ?? .greatestFiniteMagnitude) <= lyricTime }) ?? 0)
+        var lower = 0
+        var upper = lines.count - 1
+        var result = 0
+        while lower <= upper {
+            let middle = lower + (upper - lower) / 2
+            let time = lines[middle].time ?? .greatestFiniteMagnitude
+            if time <= lyricTime {
+                result = middle
+                lower = middle + 1
+            } else {
+                upper = middle - 1
+            }
+        }
+        return result
     }
 
     private func positionAtCurrentLine(_ proxy: ScrollViewProxy, animated: Bool) {
@@ -921,12 +933,13 @@ private struct PlaybackProgressView: View {
 struct AlbumArtworkBackground: View {
     let artworkPath: String?
     var emphasis = false
+    @State private var backgroundImage: UIImage?
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 PlayerPalette.background
-                if let image = ArtworkImageCache.shared.image(at: artworkPath) {
+                if let image = backgroundImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -945,5 +958,19 @@ struct AlbumArtworkBackground: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .task(id: artworkPath) {
+            guard let artworkPath else {
+                backgroundImage = nil
+                return
+            }
+            let screen = UIScreen.main.bounds.size
+            let maxDimension = max(screen.width, screen.height) * UIScreen.main.scale
+            let image = await ArtworkImageCache.shared.image(
+                at: artworkPath,
+                maxPixelSize: Int(ceil(maxDimension))
+            )
+            guard !Task.isCancelled else { return }
+            backgroundImage = image
+        }
     }
 }

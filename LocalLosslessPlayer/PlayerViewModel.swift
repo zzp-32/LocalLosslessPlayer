@@ -57,14 +57,14 @@ final class PlayerViewModel: ObservableObject {
         service.onNextRequested = { [weak self] in self?.next() }
         service.onPreviousRequested = { [weak self] in self?.previous() }
         playbackPersistenceTimer = Timer.scheduledTimer(
-            timeInterval: 5,
+            timeInterval: 15,
             target: self,
             selector: #selector(playbackPersistenceTimerFired),
             userInfo: nil,
             repeats: true
         )
         listeningTimer = Timer.scheduledTimer(
-            timeInterval: 1,
+            timeInterval: 5,
             target: self,
             selector: #selector(listeningTimerFired),
             userInfo: nil,
@@ -124,13 +124,13 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
-    func persistPlaybackSession() {
+    func persistPlaybackSession(flushHistory: Bool = true) {
         guard !isRestoringSession, let currentSong else { return }
         captureListeningTime()
         let defaults = UserDefaults.standard
         defaults.set(currentSong.checksum, forKey: PlaybackMemoryKey.songChecksum)
         defaults.set(max(0, min(currentTime, duration)), forKey: PlaybackMemoryKey.position)
-        listeningHistory.flush()
+        if flushHistory { listeningHistory.flush() }
     }
 
     func toggle() {
@@ -271,7 +271,7 @@ final class PlayerViewModel: ObservableObject {
 
     @objc private func playbackPersistenceTimerFired() {
         guard isPlaying else { return }
-        persistPlaybackSession()
+        persistPlaybackSession(flushHistory: false)
     }
 
     @objc private func listeningTimerFired() {
@@ -308,7 +308,6 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func loadAndPlay(_ song: Song) {
-        _ = LocalMetadataService.apply(to: song)
         guard let sourceURL = SourceReference.resolveURL(for: song) else {
             errorMessage = "文件不可用，请重新定位文件夹。"
             return
@@ -318,7 +317,7 @@ final class PlayerViewModel: ObservableObject {
         activeSourceURL = sourceURL
         activeSourceIsScoped = sourceURL.startAccessingSecurityScopedResource()
         currentSong = song
-        Task { await MetadataMatcher.shared.match(song: song) }
+        MetadataMatcher.shared.schedule(song: song)
         do {
             try service.load(
                 url: sourceURL,
@@ -385,7 +384,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func setPlayerScreenVisible(_ isVisible: Bool) {
-        service.setProgressUpdateRate(isAppInBackground ? 1 : (isVisible ? 60 : 1))
+        service.setProgressUpdateRate(isAppInBackground ? 1 : (isVisible ? 30 : 1))
     }
 
     func setAppInBackground(_ background: Bool) {

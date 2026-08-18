@@ -54,6 +54,9 @@ final class FileImporterService {
 
     private let context: NSManagedObjectContext
     private let fileManager = FileManager.default
+    private var songsByRelativePath: [String: Song] = [:]
+    private var songsByChecksum: [String: Song] = [:]
+    private var legacySongsByFileName: [String: [Song]] = [:]
 
     init(context: NSManagedObjectContext) { self.context = context }
 
@@ -129,19 +132,23 @@ final class FileImporterService {
         var duplicateCount = 0
         var failures: [String] = []
 
+        rebuildExistingSongIndex()
         print("[Import] Received \(urls.count) selected file URLs")
         for (index, source) in urls.enumerated() {
-            progress(source.lastPathComponent, index + 1, urls.count)
+            if index == 0 || index == urls.count - 1 || index % 10 == 0 {
+                progress(source.lastPathComponent, index + 1, urls.count)
+            }
             do {
                 switch try indexFile(source, rootFolder: rootFolder, rootBookmark: rootBookmark) {
                 case .imported: importedCount += 1
-                case .duplicate: duplicateCount += 1
+                case .updated, .unchanged: duplicateCount += 1
                 }
                 if importedCount > 0, importedCount % 25 == 0, context.hasChanges { try context.save() }
             } catch {
                 print("[Import] Failed \(source.lastPathComponent): \(error.localizedDescription)")
                 failures.append("\(source.lastPathComponent): \(error.localizedDescription)")
             }
+            if index % 8 == 0 { await Task.yield() }
         }
 
         if context.hasChanges {
@@ -152,9 +159,17 @@ final class FileImporterService {
         return ImportResult(importedCount: importedCount, duplicateCount: duplicateCount, failures: failures)
     }
 
-    private enum Outcome { case imported, duplicate }
+    private enum Outcome { case imported, updated, unchanged }
 
     private func indexFile(_ source: URL, rootFolder: URL?, rootBookmark: Data?) throws -> Outcome {
+        if rootBookmark == nil, rootFolder?.standardizedFileURL == StorageConfiguration.mediaRootURL.standardizedFileURL {
+            return try indexCoordinatedFile(
+                source,
+                readURL: source,
+                rootFolder: rootFolder,
+                rootBookmark: rootBookmark
+            )
+        }
         let hasSecurityScope = source.startAccessingSecurityScopedResource()
         defer { if hasSecurityScope { source.stopAccessingSecurityScopedResource() } }
         print("[Import] File access \(hasSecurityScope ? "started" : "not required/failed"): \(source.path)")
@@ -210,29 +225,31 @@ final class FileImporterService {
         )
 
         if let existing = try existingSong(for: source, relativePath: relativePath, checksum: checksum) {
+            let changed = existing.checksum != checksum
             updateReference(existing, source: source, fileBookmark: fileBookmark, rootBookmark: rootBookmark, relativePath: relativePath, checksum: checksum)
-            return .duplicate
+            if changed {
+                MetadataMatcher.shared.schedule(song: existing, forceLocalRefresh: true)
+                return .updated
+            }
+            return .unchanged
         }
 
-        let asset = AVURLAsset(url: readURL)
-        let seconds = CMTimeGetSeconds(asset.duration)
-        let metadata = asset.commonMetadata
         let song = Song(context: context)
         song.id = UUID()
-        song.title = metadataValue(metadata, key: .commonKeyTitle) ?? source.deletingPathExtension().lastPathComponent
-        song.artist = metadataValue(metadata, key: .commonKeyArtist)
-        song.album = metadataValue(metadata, key: .commonKeyAlbumName)
+        song.title = source.deletingPathExtension().lastPathComponent
+        song.artist = nil
+        song.album = nil
         song.fileName = source.lastPathComponent
         song.filePath = relativePath ?? source.lastPathComponent
         song.sourceBookmark = fileBookmark
         song.sourceRootBookmark = rootBookmark
         song.sourceRelativePath = relativePath
         song.checksum = checksum
-        song.duration = seconds.isFinite ? max(0, seconds) : 0
+        song.duration = 0
         song.createdAt = Date()
 
-        _ = LocalMetadataService.apply(to: song)
-        Task { await MetadataMatcher.shared.match(song: song) }
+        remember(song)
+        MetadataMatcher.shared.schedule(song: song)
         print("[Import] Indexed \(song.fileName), relativePath=\(relativePath ?? "none")")
         return .imported
     }
@@ -254,24 +271,33 @@ final class FileImporterService {
     }
 
     private func existingSong(for source: URL, relativePath: String?, checksum: String) throws -> Song? {
-        if let relativePath {
-            let request = Song.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceRelativePath == %@", relativePath)
-            request.fetchLimit = 1
-            if let song = try context.fetch(request).first { return song }
-        }
-
-        let checksumRequest = Song.fetchRequest()
-        checksumRequest.predicate = NSPredicate(format: "checksum == %@", checksum)
-        checksumRequest.fetchLimit = 1
-        if let song = try context.fetch(checksumRequest).first { return song }
-
-        let nameRequest = Song.fetchRequest()
-        nameRequest.predicate = NSPredicate(format: "fileName == %@ AND sourceRelativePath == nil", source.lastPathComponent)
-        for song in try context.fetch(nameRequest) {
+        if let relativePath, let song = songsByRelativePath[relativePath] { return song }
+        if let song = songsByChecksum[checksum] { return song }
+        for song in legacySongsByFileName[source.lastPathComponent] ?? [] {
             if SourceReference.resolveURL(for: song)?.standardizedFileURL == source.standardizedFileURL { return song }
         }
         return nil
+    }
+
+    private func rebuildExistingSongIndex() {
+        let request = Song.fetchRequest()
+        request.fetchBatchSize = 200
+        let existing = (try? context.fetch(request)) ?? []
+        songsByRelativePath = Dictionary(
+            existing.compactMap { song in song.sourceRelativePath.map { ($0, song) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        songsByChecksum = Dictionary(
+            existing.map { ($0.checksum, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        legacySongsByFileName = Dictionary(grouping: existing.filter { $0.sourceRelativePath == nil }, by: \.fileName)
+    }
+
+    private func remember(_ song: Song) {
+        if let relativePath = song.sourceRelativePath { songsByRelativePath[relativePath] = song }
+        songsByChecksum[song.checksum] = song
+        if song.sourceRelativePath == nil { legacySongsByFileName[song.fileName, default: []].append(song) }
     }
 
     private func fastIdentifier(source: URL, relativePath: String?, fileSize: Int?, modifiedAt: Date?) -> String {
@@ -279,9 +305,4 @@ final class FileImporterService {
         let seed = "\(location.lowercased())|\(fileSize ?? -1)|\(modifiedAt?.timeIntervalSince1970 ?? 0)"
         return SHA256.hash(data: Data(seed.utf8)).map { String(format: "%02x", $0) }.joined()
     }
-}
-
-private func metadataValue(_ items: [AVMetadataItem], key: AVMetadataKey) -> String? {
-    guard let value = items.first(where: { $0.commonKey == key })?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-    return value
 }

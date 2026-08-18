@@ -59,6 +59,13 @@ enum SourceReference {
         return (try? url.checkResourceIsReachable()) == true
     }
 
+    static func securityScopeURL(for song: Song) -> URL? {
+        if let rootBookmark = song.sourceRootBookmark {
+            return resolveBookmark(rootBookmark)?.url
+        }
+        return resolveURL(for: song)
+    }
+
     static func deleteSourceFile(for song: Song) throws {
         guard let targetURL = resolveURL(for: song) else { throw ReferenceError.unavailable }
 

@@ -25,6 +25,7 @@ final class PersistenceController {
         }
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.undoManager = nil
     }
 
     private static func makeModel() -> NSManagedObjectModel {

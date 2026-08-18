@@ -93,6 +93,7 @@ final class AppSettings: ObservableObject {
 
     private let defaults: UserDefaults
     private var customEqualizerGains: [Double]
+    private var persistTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -153,7 +154,22 @@ final class AppSettings: ObservableObject {
         playbackRate = 1
     }
 
+    func flush() {
+        persistTask?.cancel()
+        persistTask = nil
+        writePersistedValues()
+    }
+
     private func persist() {
+        persistTask?.cancel()
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            self?.writePersistedValues()
+        }
+    }
+
+    private func writePersistedValues() {
         defaults.set(equalizerGains, forKey: "eq.gains")
         defaults.set(customEqualizerGains, forKey: "eq.customGains")
         defaults.set(selectedEqualizerPreset.rawValue, forKey: "eq.preset")

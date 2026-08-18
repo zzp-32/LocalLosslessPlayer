@@ -1,23 +1,52 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
-final class ArtworkImageCache {
+actor ArtworkImageCache {
     static let shared = ArtworkImageCache()
 
     private let cache = NSCache<NSString, UIImage>()
+    private var inFlight: [NSString: Task<UIImage?, Never>] = [:]
 
     private init() {
         cache.totalCostLimit = 48 * 1024 * 1024
     }
 
-    func image(at path: String?) -> UIImage? {
+    func image(at path: String?, maxPixelSize: Int) async -> UIImage? {
         guard let path, !path.isEmpty else { return nil }
-        let key = path as NSString
+        let pixelSize = max(32, maxPixelSize)
+        let key = "\(path)#\(pixelSize)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
-        guard let image = UIImage(contentsOfFile: path) else { return nil }
-        let pixels = image.size.width * image.size.height * image.scale * image.scale
+        if let task = inFlight[key] { return await task.value }
+        let task = Task.detached(priority: .utility) {
+            Self.decodeThumbnail(at: path, maxPixelSize: pixelSize)
+        }
+        inFlight[key] = task
+        let image = await task.value
+        inFlight[key] = nil
+        guard let image else { return nil }
+        let pixels = image.size.width * image.size.height
         cache.setObject(image, forKey: key, cost: Int(pixels * 4))
         return image
+    }
+
+    func removeAll() {
+        inFlight.values.forEach { $0.cancel() }
+        inFlight.removeAll()
+        cache.removeAllObjects()
+    }
+
+    private nonisolated static func decodeThumbnail(at path: String, maxPixelSize: Int) -> UIImage? {
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 }
 
@@ -39,6 +68,7 @@ struct ArtworkTile: View {
     let size: CGFloat
     var large = false
     var artworkPath: String? = nil
+    @State private var artworkImage: UIImage?
 
     private var color: Color {
         let colors = [PlayerPalette.green, PlayerPalette.coral, PlayerPalette.cyan, PlayerPalette.gold]
@@ -48,7 +78,7 @@ struct ArtworkTile: View {
     var body: some View {
         ZStack {
             PlayerPalette.raised
-            if let image = ArtworkImageCache.shared.image(at: artworkPath) {
+            if let image = artworkImage {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Rectangle().fill(color.opacity(0.78)).frame(width: size * 0.67, height: size * 0.67).rotationEffect(.degrees(large ? 12 : 8))
@@ -61,7 +91,20 @@ struct ArtworkTile: View {
         .clipped()
         .cornerRadius(large ? 8 : 6)
         .overlay(RoundedRectangle(cornerRadius: large ? 8 : 6).stroke(Color.white.opacity(0.08)))
+        .task(id: artworkTaskID) {
+            guard let artworkPath else {
+                artworkImage = nil
+                return
+            }
+            let scale = UIScreen.main.scale
+            let requestedSize = Int(ceil(size * scale * (large ? 1.5 : 1)))
+            let image = await ArtworkImageCache.shared.image(at: artworkPath, maxPixelSize: requestedSize)
+            guard !Task.isCancelled else { return }
+            artworkImage = image
+        }
     }
+
+    private var artworkTaskID: String { "\(artworkPath ?? "")#\(size)#\(large)" }
 }
 
 func timeText(_ seconds: Double) -> String {
