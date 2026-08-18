@@ -31,6 +31,7 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private var preferredProgressFPS = 1
     private var playbackRate: Double = 1
     private var isMonoAudio = false
+    private var audioSessionIsActive = false
 
     override init() {
         super.init()
@@ -113,7 +114,13 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     func play() throws {
         guard audioFile != nil else { throw AudioPlayerError.noAudioLoaded }
-        if !engine.isRunning { try engine.start() }
+        try activateAudioSession()
+        do {
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            deactivateAudioSession()
+            throw error
+        }
         playerNode.play()
         isPlaying = true
         startProgressUpdates()
@@ -122,9 +129,11 @@ final class AudioPlayerService: NSObject, ObservableObject {
 
     func pause() {
         playerNode.pause()
+        engine.pause()
         isPlaying = false
         stopProgressUpdates()
         updatePlaybackState()
+        deactivateAudioSession()
     }
 
     func seek(to seconds: Double) throws {
@@ -145,11 +154,13 @@ final class AudioPlayerService: NSObject, ObservableObject {
     func stop() {
         invalidateSchedule()
         playerNode.stop()
+        engine.stop()
         isPlaying = false
         currentTime = 0
         startFrame = 0
         stopProgressUpdates()
         updatePlaybackState()
+        deactivateAudioSession()
     }
 
     private func schedule(from frame: AVAudioFramePosition) {
@@ -166,6 +177,8 @@ final class AudioPlayerService: NSObject, ObservableObject {
                 self.currentTime = self.duration
                 self.stopProgressUpdates()
                 self.updatePlaybackState()
+                self.engine.stop()
+                self.deactivateAudioSession()
                 self.onPlaybackFinished?()
             }
         }
@@ -176,7 +189,19 @@ final class AudioPlayerService: NSObject, ObservableObject {
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
-        try? session.setActive(true)
+    }
+
+    private func activateAudioSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setActive(true)
+        audioSessionIsActive = true
+    }
+
+    private func deactivateAudioSession() {
+        guard audioSessionIsActive else { return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        audioSessionIsActive = false
     }
 
     private func applyMonoOutputIfNeeded(_ monoAudio: Bool) {
