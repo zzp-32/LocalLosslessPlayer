@@ -3,6 +3,10 @@ import CoreData
 import CryptoKit
 import Foundation
 
+private let supportedAudioExtensions: Set<String> = [
+    "flac", "alac", "wav", "wave", "aif", "aiff", "m4a", "mp3", "aac", "caf"
+]
+
 struct FolderScanResult {
     let files: [URL]
     let visitedCount: Int
@@ -48,10 +52,6 @@ enum ImportAccessError: LocalizedError {
 
 @MainActor
 final class FileImporterService {
-    private static let supportedExtensions = Set([
-        "flac", "alac", "wav", "wave", "aif", "aiff", "m4a", "mp3", "aac", "caf"
-    ])
-
     private let context: NSManagedObjectContext
     private let fileManager = FileManager.default
     private var songsByRelativePath: [String: Song] = [:]
@@ -97,10 +97,10 @@ final class FileImporterService {
                         do {
                             let values = try url.resourceValues(forKeys: Set(keys))
                             guard values.isRegularFile == true,
-                                  supportedExtensions.contains(url.pathExtension.lowercased()) else { continue }
+                                  supportedAudioExtensions.contains(url.pathExtension.lowercased()) else { continue }
                             files.append(url)
                         } catch {
-                            if supportedExtensions.contains(url.pathExtension.lowercased()) {
+                            if supportedAudioExtensions.contains(url.pathExtension.lowercased()) {
                                 inaccessibleCount += 1
                                 enumerationErrors.append("\(url.lastPathComponent): \(error.localizedDescription)")
                             }

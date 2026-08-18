@@ -206,29 +206,29 @@ final class AudioPlayerService: NSObject, ObservableObject {
             forName: AVAudioSession.interruptionNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in self?.handleInterruption(notification) }
+        ) { [weak self] note in
+            Task { @MainActor [weak self, note] in self?.handleInterruption(note) }
         })
         observerTokens.append(center.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in self?.handleRouteChange(notification) }
+        ) { [weak self] note in
+            Task { @MainActor [weak self, note] in self?.handleRouteChange(note) }
         })
         observerTokens.append(center.addObserver(
             forName: AVAudioSession.mediaServicesWereResetNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.recoverAfterMediaServicesReset() }
+            Task { @MainActor [weak self] in self?.recoverAfterMediaServicesReset() }
         })
         observerTokens.append(center.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in try? self?.restartEngineIfNeeded() }
+            Task { @MainActor [weak self] in try? self?.restartEngineIfNeeded() }
         })
     }
 
