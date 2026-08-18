@@ -40,6 +40,7 @@ final class PlayerViewModel: ObservableObject {
     private var listeningSecondsInPlayback = 0.0
     private var listeningPlayCredited = false
     private var lastListeningTick: Date?
+    private var isAppInBackground = false
 
     private enum PlaybackMemoryKey {
         static let songChecksum = "playback.lastSongChecksum"
@@ -384,7 +385,14 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func setPlayerScreenVisible(_ isVisible: Bool) {
-        service.setProgressUpdateRate(isVisible ? 60 : 1)
+        service.setProgressUpdateRate(isAppInBackground ? 1 : (isVisible ? 60 : 1))
+    }
+
+    func setAppInBackground(_ background: Bool) {
+        isAppInBackground = background
+        if background {
+            service.setProgressUpdateRate(1)
+        }
     }
 
     private func finishListeningSession(captureRemainder: Bool) {

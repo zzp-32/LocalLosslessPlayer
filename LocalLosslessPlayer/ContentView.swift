@@ -58,8 +58,11 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
+                player.setAppInBackground(false)
+                player.setPlayerScreenVisible(selectedTab == 1)
                 Task { await library.scanMusicFolder(reportStatus: false) }
             } else if phase == .inactive || phase == .background {
+                player.setAppInBackground(true)
                 player.persistPlaybackSession()
             }
         }
