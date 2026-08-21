@@ -130,14 +130,11 @@ struct RotatingArtworkTile: View {
     private var artworkID: String { "\(artworkPath ?? "")#\(title)" }
 
     var body: some View {
-        Group {
-            if isPlaying {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                    artworkView(rotation: rotation(at: context.date))
-                }
-            } else {
-                artworkView(rotation: accumulatedRotation)
-            }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            // Keep the ArtworkTile identity stable when pausing. Replacing the
+            // timeline branch with a static branch would briefly reset its
+            // asynchronous artwork state and show the placeholder for one frame.
+            artworkView(rotation: isPlaying ? rotation(at: context.date) : accumulatedRotation)
         }
         .onAppear {
             rotationKey = artworkID
