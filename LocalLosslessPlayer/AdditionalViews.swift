@@ -476,6 +476,7 @@ struct NowPlayingView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var displayMode: DisplayMode = .song
     @State private var metadataRevision = UUID()
+    @State private var albumLyricsReloadID = UUID()
     @State private var showingMoreSettings = false
 
     private enum DisplayMode {
@@ -496,7 +497,7 @@ struct NowPlayingView: View {
 
                 Group {
                     if displayMode == .song {
-                        SongDisplayView()
+                        SongDisplayView(albumLyricsReloadID: albumLyricsReloadID)
                             .environmentObject(player)
                             .environmentObject(settings)
                             .transition(.opacity)
@@ -550,6 +551,11 @@ struct NowPlayingView: View {
     private func modeButton(_ title: String, mode: DisplayMode) -> some View {
         Button {
             displayMode = mode
+            if mode == .song {
+                // Recreate the album lyric overlay when returning from the
+                // full lyric page so its cached lines are loaded again.
+                albumLyricsReloadID = UUID()
+            }
         } label: {
             Text(title)
                 .font(.headline)
@@ -569,6 +575,7 @@ struct NowPlayingView: View {
                     displayMode = .lyrics
                 } else {
                     displayMode = .song
+                    albumLyricsReloadID = UUID()
                 }
             }
     }
@@ -578,6 +585,7 @@ struct NowPlayingView: View {
 private struct SongDisplayView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
+    let albumLyricsReloadID: UUID
 
     var body: some View {
         GeometryReader { proxy in
@@ -596,6 +604,7 @@ private struct SongDisplayView: View {
                         song: player.currentSong,
                         settings: settings
                     )
+                    .id(albumLyricsReloadID)
                     .frame(width: artworkSize * 0.94, height: artworkSize * 0.58)
                 }
                 .frame(width: artworkSize, height: artworkSize)
