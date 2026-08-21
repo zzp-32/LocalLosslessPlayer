@@ -560,14 +560,14 @@ private struct SongDisplayView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let artworkSize = min(proxy.size.width - 48, min(340, max(190, proxy.size.height - 98)))
+            let artworkSize = min(proxy.size.width - 32, min(352, max(220, proxy.size.height - 86)))
             VStack(spacing: 0) {
                 Spacer(minLength: 8)
-                ArtworkTile(
+                RotatingArtworkTile(
                     title: player.currentSong?.title ?? "",
                     size: artworkSize,
-                    large: true,
-                    artworkPath: player.currentSong?.artworkPath
+                    artworkPath: player.currentSong?.artworkPath,
+                    isPlaying: player.isPlaying
                 )
                 Spacer(minLength: 14)
                 VStack(alignment: .leading, spacing: 5) {

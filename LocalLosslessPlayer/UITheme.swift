@@ -68,6 +68,7 @@ struct ArtworkTile: View {
     let size: CGFloat
     var large = false
     var artworkPath: String? = nil
+    var circular = false
     @State private var artworkImage: UIImage?
 
     private var color: Color {
@@ -89,8 +90,14 @@ struct ArtworkTile: View {
         }
         .frame(width: size, height: size)
         .clipped()
-        .cornerRadius(large ? 8 : 6)
-        .overlay(RoundedRectangle(cornerRadius: large ? 8 : 6).stroke(Color.white.opacity(0.08)))
+        .clipShape(circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: large ? 8 : 6)))
+        .overlay {
+            if circular {
+                Circle().stroke(Color.white.opacity(0.12), lineWidth: 1)
+            } else {
+                RoundedRectangle(cornerRadius: large ? 8 : 6).stroke(Color.white.opacity(0.08))
+            }
+        }
         .task(id: artworkTaskID) {
             guard let artworkPath else {
                 artworkImage = nil
@@ -105,6 +112,73 @@ struct ArtworkTile: View {
     }
 
     private var artworkTaskID: String { "\(artworkPath ?? "")#\(size)#\(large)" }
+}
+
+/// The full-size artwork on the now-playing screen behaves like a slow record.
+/// TimelineView keeps the animation local to this view, so playback progress does
+/// not cause the surrounding player page to redraw at display rate.
+struct RotatingArtworkTile: View {
+    let title: String
+    let size: CGFloat
+    let artworkPath: String?
+    let isPlaying: Bool
+    private let rotationDuration: TimeInterval = 24
+    @State private var accumulatedRotation = 0.0
+    @State private var startedAt: Date?
+    @State private var rotationKey = ""
+
+    private var artworkID: String { "\(artworkPath ?? "")#\(title)" }
+
+    var body: some View {
+        Group {
+            if isPlaying {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    artworkView(rotation: rotation(at: context.date))
+                }
+            } else {
+                artworkView(rotation: accumulatedRotation)
+            }
+        }
+        .onAppear {
+            rotationKey = artworkID
+            startedAt = isPlaying ? Date() : nil
+        }
+        .onChange(of: isPlaying) { playing in
+            syncRotation(at: Date(), isPlaying: playing)
+        }
+        .onChange(of: artworkID) { newID in
+            guard newID != rotationKey else { return }
+            rotationKey = newID
+            accumulatedRotation = 0
+            startedAt = isPlaying ? Date() : nil
+        }
+    }
+
+    private func artworkView(rotation: Double) -> some View {
+        ArtworkTile(
+            title: title,
+            size: size,
+            large: true,
+            artworkPath: artworkPath,
+            circular: true
+        )
+        .rotationEffect(.degrees(rotation))
+    }
+
+    private func rotation(at date: Date) -> Double {
+        guard let startedAt else { return accumulatedRotation }
+        return accumulatedRotation + date.timeIntervalSince(startedAt) * 360 / rotationDuration
+    }
+
+    private func syncRotation(at date: Date, isPlaying playing: Bool) {
+        if playing {
+            // Preserve the current angle when playback resumes.
+            startedAt = date
+        } else {
+            accumulatedRotation = rotation(at: date).truncatingRemainder(dividingBy: 360)
+            startedAt = nil
+        }
+    }
 }
 
 func timeText(_ seconds: Double) -> String {
