@@ -336,7 +336,7 @@ private struct LyricsSettingsView: View {
                     Button { selection.wrappedValue = color } label: {
                         Circle()
                             .fill(color.color)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 30, height: 30)
                             .overlay {
                                 if selection.wrappedValue == color {
                                     Image(systemName: "checkmark")
@@ -345,6 +345,12 @@ private struct LyricsSettingsView: View {
                                 }
                             }
                     }
+                    // A List's default button style can expand each button to the whole row.
+                    // Keep every swatch's hit target independent so the last swatch cannot
+                    // intercept taps intended for the other colors.
+                    .buttonStyle(.plain)
+                    .frame(width: 42, height: 42)
+                    .contentShape(Circle())
                     .accessibilityLabel(color.title)
                 }
             }
