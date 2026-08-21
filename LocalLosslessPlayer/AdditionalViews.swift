@@ -711,7 +711,7 @@ private struct InlineLyricsView: View {
                     )
                     .onChange(of: currentIndex) { index in
                         guard isFollowingPlayback, isScrollReady else { return }
-                        withAnimation(.easeInOut(duration: 0.26)) {
+                        withAnimation(.easeOut(duration: 0.42)) {
                             proxy.scrollTo(index, anchor: .center)
                         }
                     }
@@ -731,7 +731,7 @@ private struct InlineLyricsView: View {
                         Button {
                             isFollowingPlayback = true
                             syncCurrentLine()
-                            withAnimation(.easeInOut(duration: 0.26)) {
+                            withAnimation(.easeOut(duration: 0.42)) {
                                 proxy.scrollTo(currentIndex, anchor: .center)
                             }
                         } label: {
@@ -752,22 +752,27 @@ private struct InlineLyricsView: View {
 
     private func lyricLineView(_ line: LyricLine, index: Int, width: CGFloat) -> some View {
         let isCurrent = hasTimedLyrics && index == currentIndex
-        let fontSize = isCurrent ? settings.lyricHighlightFontSize : settings.lyricFontSize
+        let regularSize = max(12, settings.lyricFontSize)
+        let highlightSize = max(regularSize, settings.lyricHighlightFontSize)
         let fontWeight: Font.Weight = isCurrent ? .bold : .semibold
         let color = isCurrent ? settings.lyricHighlightColor.color : settings.lyricColor.color
 
         return Text(line.text)
-            .font(.system(size: fontSize, weight: fontWeight))
+            // Keep every row's layout stable. The active line grows visually
+            // instead of changing the stack's measured height and jumping the scroll target.
+            .font(.system(size: regularSize, weight: fontWeight))
             .foregroundStyle(color)
             .opacity(lineOpacity(at: index))
             .multilineTextAlignment(settings.lyricAlignment.textAlignment)
             .frame(width: width, alignment: settings.lyricAlignment.frameAlignment)
+            .lineLimit(2)
             .frame(
-                minHeight: max(settings.lyricFontSize, settings.lyricHighlightFontSize) * 1.35,
+                height: highlightSize * 1.55,
                 alignment: settings.lyricAlignment.frameAlignment
             )
-            .fixedSize(horizontal: false, vertical: true)
+            .scaleEffect(isCurrent ? highlightSize / regularSize : 1, anchor: .center)
             .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.22), value: isCurrent)
     }
 
     private func lineOpacity(at index: Int) -> Double {
@@ -839,7 +844,7 @@ private struct InlineLyricsView: View {
         player.seek(to: max(0, time - settings.lyricOffset))
         currentIndex = index
         isFollowingPlayback = true
-        withAnimation(.easeInOut(duration: 0.26)) {
+        withAnimation(.easeOut(duration: 0.42)) {
             proxy.scrollTo(index, anchor: .center)
         }
     }

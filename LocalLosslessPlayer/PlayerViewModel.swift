@@ -384,7 +384,9 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func setPlayerScreenVisible(_ isVisible: Bool) {
-        service.setProgressUpdateRate(isAppInBackground ? 1 : (isVisible ? 30 : 1))
+        // The progress publisher is observed only by the progress/lyrics subviews,
+        // so the player screen can use display-rate timing without refreshing the app shell.
+        service.setProgressUpdateRate(isAppInBackground ? 1 : (isVisible ? 60 : 1))
     }
 
     func setAppInBackground(_ background: Bool) {
