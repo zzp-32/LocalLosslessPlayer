@@ -577,8 +577,7 @@ private struct SongDisplayView: View {
                         song: player.currentSong,
                         settings: settings
                     )
-                    .frame(width: artworkSize * 0.92, height: artworkSize * 0.42)
-                    .offset(y: artworkSize * 0.22)
+                    .frame(width: artworkSize * 0.94, height: artworkSize * 0.58)
                 }
                 .frame(width: artworkSize, height: artworkSize)
                 .clipShape(Circle())
@@ -935,17 +934,22 @@ private struct ArtworkLyricsOverlay: View {
     var body: some View {
         Group {
             if !lines.isEmpty {
-                ZStack(alignment: .bottom) {
-                    LinearGradient(
-                        colors: [.clear, Color.black.opacity(0.78)],
-                        startPoint: .top,
-                        endPoint: .bottom
+                ZStack {
+                    // A soft center vignette keeps the text readable without
+                    // introducing a visible horizontal edge over the artwork.
+                    RadialGradient(
+                        colors: [Color.black.opacity(0.58), Color.black.opacity(0.04), .clear],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: 190
                     )
                     VStack(spacing: 3) {
                         ForEach(displayIndexes, id: \.self) { index in
                             Text(lines[index].text)
                                 .font(.system(
-                                    size: CGFloat(index == currentIndex ? min(settings.lyricHighlightFontSize, 22) : min(settings.lyricFontSize, 16)),
+                                    size: CGFloat(index == currentIndex
+                                        ? min(max(settings.lyricHighlightFontSize, 27), 31)
+                                        : min(max(settings.lyricFontSize, 20), 23)),
                                     weight: index == currentIndex ? .bold : .semibold
                                 ))
                                 .foregroundStyle(index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
