@@ -476,7 +476,7 @@ struct NowPlayingView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var displayMode: DisplayMode = .song
     @State private var metadataRevision = UUID()
-    @State private var albumLyricsReloadID = UUID()
+    @State private var albumLyrics: [LyricLine] = []
     @State private var showingMoreSettings = false
 
     private enum DisplayMode {
@@ -497,7 +497,7 @@ struct NowPlayingView: View {
 
                 Group {
                     if displayMode == .song {
-                        SongDisplayView(albumLyricsReloadID: albumLyricsReloadID)
+                        SongDisplayView(lyrics: albumLyrics)
                             .environmentObject(player)
                             .environmentObject(settings)
                             .transition(.opacity)
@@ -520,10 +520,17 @@ struct NowPlayingView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear { player.apply(settings: settings) }
+        .onAppear {
+            player.apply(settings: settings)
+            reloadAlbumLyrics()
+        }
+        .onChange(of: player.currentSong?.objectID) { _ in
+            reloadAlbumLyrics()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
             guard notification.object as? NSManagedObjectID == player.currentSong?.objectID else { return }
             metadataRevision = UUID()
+            reloadAlbumLyrics()
         }
         .sheet(isPresented: $showingMoreSettings) {
             MoreSettingsSheet()
@@ -551,11 +558,6 @@ struct NowPlayingView: View {
     private func modeButton(_ title: String, mode: DisplayMode) -> some View {
         Button {
             displayMode = mode
-            if mode == .song {
-                // Recreate the album lyric overlay when returning from the
-                // full lyric page so its cached lines are loaded again.
-                albumLyricsReloadID = UUID()
-            }
         } label: {
             Text(title)
                 .font(.headline)
@@ -575,9 +577,22 @@ struct NowPlayingView: View {
                     displayMode = .lyrics
                 } else {
                     displayMode = .song
-                    albumLyricsReloadID = UUID()
                 }
             }
+    }
+
+    private func reloadAlbumLyrics() {
+        guard let song = player.currentSong else {
+            albumLyrics = []
+            return
+        }
+        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) }
+            ?? SourceReference.sidecarURL(for: song, extension: "lrc")
+        guard let url, let content = try? String(contentsOf: url, encoding: .utf8) else {
+            albumLyrics = []
+            return
+        }
+        albumLyrics = LyricParser.parse(content)
     }
 
 }
@@ -585,7 +600,7 @@ struct NowPlayingView: View {
 private struct SongDisplayView: View {
     @EnvironmentObject private var player: PlayerViewModel
     @EnvironmentObject private var settings: AppSettings
-    let albumLyricsReloadID: UUID
+    let lyrics: [LyricLine]
 
     var body: some View {
         GeometryReader { proxy in
@@ -602,9 +617,9 @@ private struct SongDisplayView: View {
                     ArtworkLyricsOverlay(
                         progress: player.playbackProgress,
                         song: player.currentSong,
+                        lyrics: lyrics,
                         settings: settings
                     )
-                    .id(albumLyricsReloadID)
                     .frame(width: artworkSize * 0.94, height: artworkSize * 0.58)
                 }
                 .frame(width: artworkSize, height: artworkSize)
@@ -955,13 +970,13 @@ private struct PlaybackControlsView: View {
 private struct ArtworkLyricsOverlay: View {
     @ObservedObject var progress: AudioPlayerService
     let song: Song?
+    let lyrics: [LyricLine]
     let settings: AppSettings
-    @State private var lines: [LyricLine] = []
     @State private var currentIndex = 0
 
     var body: some View {
         Group {
-            if !lines.isEmpty {
+            if !lyrics.isEmpty {
                 ZStack {
                     // A soft center vignette keeps the text readable without
                     // introducing a visible horizontal edge over the artwork.
@@ -973,7 +988,7 @@ private struct ArtworkLyricsOverlay: View {
                     )
                     VStack(spacing: 3) {
                         ForEach(displayIndexes, id: \.self) { index in
-                            Text(lines[index].text)
+                            Text(lyrics[index].text)
                                 .font(.system(
                                     size: CGFloat(index == currentIndex
                                         ? min(max(settings.albumLyricHighlightFontSize, 18), 38)
@@ -995,53 +1010,36 @@ private struct ArtworkLyricsOverlay: View {
                 .transition(.opacity)
             }
         }
-        .onAppear { reloadLyrics() }
+        .onAppear { syncCurrentLine() }
         .onReceive(progress.$currentTime) { _ in syncCurrentLine() }
-        .onChange(of: song?.checksum) { _ in reloadLyrics() }
-        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
-            guard notification.object as? NSManagedObjectID == song?.objectID else { return }
-            reloadLyrics()
+        .onChange(of: song?.objectID) { _ in
+            currentIndex = 0
+            syncCurrentLine()
         }
     }
 
     private var displayIndexes: [Int] {
-        guard !lines.isEmpty else { return [] }
+        guard !lyrics.isEmpty else { return [] }
         let count = max(1, min(5, settings.albumLyricLineCount))
         let before = (count - 1) / 2
-        let start = max(0, min(currentIndex - before, lines.count - count))
-        return Array(start..<min(lines.count, start + count))
-    }
-
-    private func reloadLyrics() {
-        guard let song else {
-            lines = []
-            currentIndex = 0
-            return
-        }
-        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) }
-            ?? SourceReference.sidecarURL(for: song, extension: "lrc")
-        guard let url, let content = try? String(contentsOf: url, encoding: .utf8) else {
-            lines = []
-            currentIndex = 0
-            return
-        }
-        lines = LyricParser.parse(content)
-        syncCurrentLine()
+        let safeIndex = min(max(currentIndex, 0), lyrics.count - 1)
+        let start = max(0, min(safeIndex - before, lyrics.count - count))
+        return Array(start..<min(lyrics.count, start + count))
     }
 
     private func syncCurrentLine() {
-        guard !lines.isEmpty else { return }
-        guard lines.contains(where: { $0.time != nil }) else {
+        guard !lyrics.isEmpty else { return }
+        guard lyrics.contains(where: { $0.time != nil }) else {
             currentIndex = 0
             return
         }
         let time = progress.currentTime + settings.lyricOffset
         var lower = 0
-        var upper = lines.count - 1
+        var upper = lyrics.count - 1
         var result = 0
         while lower <= upper {
             let middle = lower + (upper - lower) / 2
-            if let lineTime = lines[middle].time, lineTime <= time {
+            if let lineTime = lyrics[middle].time, lineTime <= time {
                 result = middle
                 lower = middle + 1
             } else {
