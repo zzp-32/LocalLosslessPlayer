@@ -286,6 +286,25 @@ private struct LyricsSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 }
+
+                Section("专辑页面歌词") {
+                    lyricSlider(title: "普通歌词大小", value: $settings.albumLyricFontSize, range: 14...32)
+                    lyricSlider(title: "高亮歌词大小", value: $settings.albumLyricHighlightFontSize, range: 18...38)
+                    Stepper(value: $settings.albumLyricLineCount, in: 1...5) {
+                        HStack {
+                            Text("显示歌词句数").foregroundStyle(PlayerPalette.primary)
+                            Spacer()
+                            Text("\(settings.albumLyricLineCount) 句")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(PlayerPalette.secondary)
+                        }
+                    }
+                    colorRow(title: "普通歌词颜色", selection: $settings.albumLyricColor)
+                    colorRow(title: "高亮歌词颜色", selection: $settings.albumLyricHighlightColor)
+                    Text("专辑页面歌词会叠加在圆形封面中央")
+                        .font(.caption)
+                        .foregroundStyle(PlayerPalette.secondary)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(PlayerPalette.background)
@@ -948,11 +967,11 @@ private struct ArtworkLyricsOverlay: View {
                             Text(lines[index].text)
                                 .font(.system(
                                     size: CGFloat(index == currentIndex
-                                        ? min(max(settings.lyricHighlightFontSize, 27), 31)
-                                        : min(max(settings.lyricFontSize, 20), 23)),
+                                        ? min(max(settings.albumLyricHighlightFontSize, 18), 38)
+                                        : min(max(settings.albumLyricFontSize, 14), 32)),
                                     weight: index == currentIndex ? .bold : .semibold
                                 ))
-                                .foregroundStyle(index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
+                                .foregroundStyle(index == currentIndex ? settings.albumLyricHighlightColor.color : settings.albumLyricColor.color)
                                 .opacity(index == currentIndex ? 1 : (abs(index - currentIndex) == 1 ? 0.62 : 0.32))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.72)
@@ -978,8 +997,10 @@ private struct ArtworkLyricsOverlay: View {
 
     private var displayIndexes: [Int] {
         guard !lines.isEmpty else { return [] }
-        let start = max(0, min(currentIndex - 1, lines.count - 3))
-        return Array(start..<min(lines.count, start + 3))
+        let count = max(1, min(5, settings.albumLyricLineCount))
+        let before = (count - 1) / 2
+        let start = max(0, min(currentIndex - before, lines.count - count))
+        return Array(start..<min(lines.count, start + count))
     }
 
     private func reloadLyrics() {

@@ -46,6 +46,11 @@ final class AppSettings: ObservableObject {
     @Published var lyricLineSpacing: Double { didSet { persist() } }
     @Published var lyricAlignment: LyricsAlignment { didSet { persist() } }
     @Published var lyricOffset: Double { didSet { persist() } }
+    @Published var albumLyricFontSize: Double { didSet { persist() } }
+    @Published var albumLyricHighlightFontSize: Double { didSet { persist() } }
+    @Published var albumLyricColor: LyricsColor { didSet { persist() } }
+    @Published var albumLyricHighlightColor: LyricsColor { didSet { persist() } }
+    @Published var albumLyricLineCount: Int { didSet { persist() } }
 
     enum EqualizerPreset: String, CaseIterable, Identifiable {
         case standard
@@ -123,6 +128,11 @@ final class AppSettings: ObservableObject {
         lyricLineSpacing = defaults.object(forKey: "lyrics.lineSpacing") as? Double ?? 20
         lyricAlignment = LyricsAlignment(rawValue: defaults.string(forKey: "lyrics.alignment") ?? "left") ?? .left
         lyricOffset = defaults.object(forKey: "lyrics.offset") as? Double ?? 0
+        albumLyricFontSize = defaults.object(forKey: "lyrics.album.fontSize") as? Double ?? 20
+        albumLyricHighlightFontSize = defaults.object(forKey: "lyrics.album.highlightFontSize") as? Double ?? 28
+        albumLyricColor = LyricsColor(rawValue: defaults.string(forKey: "lyrics.album.color") ?? "white") ?? .white
+        albumLyricHighlightColor = LyricsColor(rawValue: defaults.string(forKey: "lyrics.album.highlightColor") ?? "green") ?? .green
+        albumLyricLineCount = max(1, min(5, defaults.object(forKey: "lyrics.album.lineCount") as? Int ?? 3))
     }
 
     func setEqualizerGain(_ value: Double, at index: Int) {
@@ -192,6 +202,11 @@ final class AppSettings: ObservableObject {
         defaults.set(lyricLineSpacing, forKey: "lyrics.lineSpacing")
         defaults.set(lyricAlignment.rawValue, forKey: "lyrics.alignment")
         defaults.set(lyricOffset, forKey: "lyrics.offset")
+        defaults.set(albumLyricFontSize, forKey: "lyrics.album.fontSize")
+        defaults.set(albumLyricHighlightFontSize, forKey: "lyrics.album.highlightFontSize")
+        defaults.set(albumLyricColor.rawValue, forKey: "lyrics.album.color")
+        defaults.set(albumLyricHighlightColor.rawValue, forKey: "lyrics.album.highlightColor")
+        defaults.set(albumLyricLineCount, forKey: "lyrics.album.lineCount")
     }
 
     private static func migratedGains(_ stored: [Double]) -> [Double] {
