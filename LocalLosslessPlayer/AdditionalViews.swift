@@ -479,6 +479,7 @@ struct NowPlayingView: View {
                     if displayMode == .song {
                         SongDisplayView()
                             .environmentObject(player)
+                            .environmentObject(settings)
                             .transition(.opacity)
                     } else {
                         InlineLyricsView(
@@ -557,18 +558,30 @@ struct NowPlayingView: View {
 
 private struct SongDisplayView: View {
     @EnvironmentObject private var player: PlayerViewModel
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         GeometryReader { proxy in
             let artworkSize = min(proxy.size.width - 32, min(352, max(220, proxy.size.height - 86)))
             VStack(spacing: 0) {
                 Spacer(minLength: 8)
-                RotatingArtworkTile(
-                    title: player.currentSong?.title ?? "",
-                    size: artworkSize,
-                    artworkPath: player.currentSong?.artworkPath,
-                    isPlaying: player.isPlaying
-                )
+                ZStack {
+                    RotatingArtworkTile(
+                        title: player.currentSong?.title ?? "",
+                        size: artworkSize,
+                        artworkPath: player.currentSong?.artworkPath,
+                        isPlaying: player.isPlaying
+                    )
+                    ArtworkLyricsOverlay(
+                        progress: player.playbackProgress,
+                        song: player.currentSong,
+                        settings: settings
+                    )
+                    .frame(width: artworkSize * 0.92, height: artworkSize * 0.42)
+                    .offset(y: artworkSize * 0.22)
+                }
+                .frame(width: artworkSize, height: artworkSize)
+                .clipShape(Circle())
                 Spacer(minLength: 14)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(player.currentSong?.title ?? "未播放")
@@ -909,6 +922,99 @@ private struct PlaybackControlsView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 10)
+    }
+}
+
+private struct ArtworkLyricsOverlay: View {
+    @ObservedObject var progress: AudioPlayerService
+    let song: Song?
+    let settings: AppSettings
+    @State private var lines: [LyricLine] = []
+    @State private var currentIndex = 0
+
+    var body: some View {
+        Group {
+            if !lines.isEmpty {
+                ZStack(alignment: .bottom) {
+                    LinearGradient(
+                        colors: [.clear, Color.black.opacity(0.78)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    VStack(spacing: 3) {
+                        ForEach(displayIndexes, id: \.self) { index in
+                            Text(lines[index].text)
+                                .font(.system(
+                                    size: CGFloat(index == currentIndex ? min(settings.lyricHighlightFontSize, 22) : min(settings.lyricFontSize, 16)),
+                                    weight: index == currentIndex ? .bold : .semibold
+                                ))
+                                .foregroundStyle(index == currentIndex ? settings.lyricHighlightColor.color : settings.lyricColor.color)
+                                .opacity(index == currentIndex ? 1 : (abs(index - currentIndex) == 1 ? 0.62 : 0.32))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                                .frame(maxWidth: .infinity)
+                                .animation(.easeOut(duration: 0.2), value: currentIndex)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
+        .onAppear { reloadLyrics() }
+        .onReceive(progress.$currentTime) { _ in syncCurrentLine() }
+        .onChange(of: song?.checksum) { _ in reloadLyrics() }
+        .onReceive(NotificationCenter.default.publisher(for: .songMetadataUpdated)) { notification in
+            guard notification.object as? NSManagedObjectID == song?.objectID else { return }
+            reloadLyrics()
+        }
+    }
+
+    private var displayIndexes: [Int] {
+        guard !lines.isEmpty else { return [] }
+        let start = max(0, min(currentIndex - 1, lines.count - 3))
+        return Array(start..<min(lines.count, start + 3))
+    }
+
+    private func reloadLyrics() {
+        guard let song else {
+            lines = []
+            currentIndex = 0
+            return
+        }
+        let url = song.lyricsPath.map { URL(fileURLWithPath: $0) }
+            ?? SourceReference.sidecarURL(for: song, extension: "lrc")
+        guard let url, let content = try? String(contentsOf: url, encoding: .utf8) else {
+            lines = []
+            currentIndex = 0
+            return
+        }
+        lines = LyricParser.parse(content)
+        syncCurrentLine()
+    }
+
+    private func syncCurrentLine() {
+        guard !lines.isEmpty else { return }
+        guard lines.contains(where: { $0.time != nil }) else {
+            currentIndex = 0
+            return
+        }
+        let time = progress.currentTime + settings.lyricOffset
+        var lower = 0
+        var upper = lines.count - 1
+        var result = 0
+        while lower <= upper {
+            let middle = lower + (upper - lower) / 2
+            if let lineTime = lines[middle].time, lineTime <= time {
+                result = middle
+                lower = middle + 1
+            } else {
+                upper = middle - 1
+            }
+        }
+        if result != currentIndex { currentIndex = result }
     }
 }
 
