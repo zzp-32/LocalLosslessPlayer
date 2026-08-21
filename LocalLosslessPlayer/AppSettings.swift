@@ -60,6 +60,7 @@ final class AppSettings: ObservableObject {
         case vocal
         case bassBoost
         case acoustic
+        case taoStyle
         case custom
 
         var id: String { rawValue }
@@ -73,6 +74,7 @@ final class AppSettings: ObservableObject {
             case .vocal: return "人声"
             case .bassBoost: return "低音增强"
             case .acoustic: return "原声"
+            case .taoStyle: return "陶喆风味"
             case .custom: return "自定义"
             }
         }
@@ -267,6 +269,16 @@ final class AppSettings: ObservableObject {
             if frequency < 5_000 { return 2.5 }
             if frequency < 12_500 { return 1.5 }
             return 0
+        case .taoStyle:
+            // Warm low end, controlled low mids, and a gentle presence lift
+            // for intimate R&B vocals without making cymbals harsh.
+            if frequency < 80 { return 1.5 }
+            if frequency < 250 { return 1.0 }
+            if frequency < 500 { return -1.0 }
+            if frequency < 2_000 { return 1.0 }
+            if frequency < 5_000 { return 2.5 }
+            if frequency < 10_000 { return 1.5 }
+            return 0.5
         }
     }
 }
